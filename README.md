@@ -37,16 +37,22 @@
 | `firmware/gateway/` | 网关固件（ESP-NOW 转 MQTT） |
 | `asrpro/` | ASRPRO 语音模块程序与命令词表 |
 | `server/` | Python 后端（MQTT 入库 + API）与网页看板 |
-| `tools/` | 无硬件模拟器、雷达串口调试工具 |
+| `tools/` | 无硬件模拟器、雷达串口调试工具、公共头文件同步脚本 |
 
 ## 快速开始
 
 1. 按 `docs/02-物料清单BOM.md` 买料。
 2. 按 `docs/04-从零开始搭建指南.md` 安装 Arduino IDE + ESP32 支持包 + 库。
-3. 修改 `firmware/common/config.h` 里的 Wi-Fi 信道、节点编号。
+3. 修改 `firmware/common/config.h` 里的 Wi-Fi 信道等参数，然后运行 `python tools/sync_common.py` 同步到各固件目录（Arduino IDE 只编译草图目录里的文件，每个目录都有一份副本）。节点编号在各 `.ino` 顶部的 `NODE_ID` 修改。
 4. 依次烧录 `sentinel`、`follower`、`worker`、`gateway`。
 5. 运行 `server/`（`docker compose up` 或 `python app.py`），浏览器打开 `http://localhost:8000`。
 6. 没有硬件时，先运行 `tools/simulator.py` 看看网页效果。
+
+## 验证状态
+
+- 四个 ESP32-C3 固件已用 arduino-cli + esp32 核心 3.3.12（开发板 ESP32C3 Dev Module，USB CDC On Boot: Enabled）编译通过。
+- 后端 + MQTT + 模拟器已端到端跑通：节点上线、事件入库、统计、安全报告、网页均正常。
+- 尚未上实物：雷达协议、ASRPRO API 需拿到硬件后按官方手册核验。
 
 ## 关键参数（默认值，可在 config.h 修改）
 

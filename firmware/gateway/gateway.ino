@@ -63,7 +63,10 @@ void handle(const RxItem &it) {
   switch (h->type) {
     case MSG_ALERT: if (it.len == sizeof(AlertPkt)) {
       const AlertPkt *p = (const AlertPkt*)it.data;
-      if (p->hops != 0) return;   // 只上报哨兵原始包，忽略中继副本
+      // 原始包与中继副本序号相同，按 (节点, 序号) 去重；网关离哨兵远时也能经中继收到
+      static uint32_t lastSeq[256] = {0};
+      if (lastSeq[h->node_id] == h->seq) return;
+      lastSeq[h->node_id] = h->seq;
       snprintf(b, sizeof(b), "{\"level\":%u,\"mode\":%u,\"speed\":%.1f,\"dist\":%.1f,\"ttc\":%.2f,\"seq\":%lu}",
                p->level, p->mode, p->speed_kmh, p->dist_m, p->ttc_s, (unsigned long)h->seq);
       publish(h->node_id, "alert", b);

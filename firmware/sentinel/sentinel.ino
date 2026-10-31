@@ -28,8 +28,10 @@
 #define PIN_BUZZER   3    // MOSFET 栅极
 #define PIN_BATT     0    // 分压后电池电压（ADC1_CH0）
 
-HardwareSerial RadarSerial(1);
-HardwareSerial AsrSerial(0);
+// 使用核心预定义的串口对象，避免重复构造同一 UART
+// （需在 Arduino IDE 中开启 USB CDC On Boot，使 Serial 走 USB，Serial0 才空闲）
+HardwareSerial &RadarSerial = Serial1;   // UART1
+HardwareSerial &AsrSerial   = Serial0;   // UART0
 Adafruit_NeoPixel strip(LED_NUM, PIN_LED, NEO_GRB + NEO_KHZ800);
 LD2451 radar;
 Kalman1D kfDist(0.5f, 4.0f), kfSpeed(0.5f, 4.0f);
@@ -233,6 +235,7 @@ void pollVoice() {
 // -------------------------------------------------------------
 void setup() {
   Serial.begin(115200);                       // USB CDC 日志
+  seq = esp_random() & 0x00FFFFFF;            // 随机起始序号：重启后接收方不会误判为旧包
   RadarSerial.begin(115200, SERIAL_8N1, PIN_RADAR_RX, PIN_RADAR_TX);
   AsrSerial.begin(9600, SERIAL_8N1, PIN_ASR_RX, PIN_ASR_TX);
   radar.begin(&RadarSerial);

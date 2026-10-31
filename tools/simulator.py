@@ -47,6 +47,7 @@ def main():
         d = 100.0
         ev = {"max_level": 0, "max_speed": 0, "min_ttc": 99, "min_dist": 999}
         start = time.time()
+        attentive = random.random() < 0.7      # 70% 司机看到预警会减速并变道
         while d > 8:
             ttc = d / (v / 3.6)
             lv = level_of(ttc, v)
@@ -58,8 +59,10 @@ def main():
             ev["min_dist"] = min(ev["min_dist"], d)
             time.sleep(0.1)
             d -= v / 3.6 * 0.1
-            if lv >= 1 and random.random() < 0.02:  # 司机看到预警后减速
-                v *= 0.85
+            if lv >= 1 and attentive:            # 注意到预警：减速，并在 30 m 左右变道离开雷达视野
+                v = max(15, v * 0.97)
+                if d < random.uniform(25, 40):
+                    break
         ev["duration_ms"] = int((time.time() - start) * 1000)
         ev = {k: round(x, 2) if isinstance(x, float) else x for k, x in ev.items()}
         pub(1, "event", ev)

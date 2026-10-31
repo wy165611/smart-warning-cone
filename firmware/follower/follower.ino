@@ -33,9 +33,12 @@ uint32_t lastSeqFrom[16] = {0};      // 按发送者去重
 uint32_t mySeq = 0, lastHeartbeat = 0;
 int8_t   lastRssi = 0;
 
+// 去重：同一发送者的序号必须变大；若序号“倒退”很多，说明对方重启过，也接受
 bool isNew(uint8_t id, uint32_t seq) {
   id &= 0x0F;
-  if (seq <= lastSeqFrom[id] && lastSeqFrom[id] - seq < 1000) return false;
+  uint32_t last = lastSeqFrom[id];
+  if (seq == last) return false;
+  if (seq < last && last - seq < 64) return false;   // 中继副本或乱序旧包
   lastSeqFrom[id] = seq; return true;
 }
 
@@ -94,6 +97,7 @@ void render() {
 
 void setup() {
   Serial.begin(115200);
+  mySeq = esp_random() & 0x00FFFFFF;
   pinMode(PIN_BUZZER, OUTPUT);
   strip.begin(); strip.setBrightness(LED_BRIGHTNESS); strip.show();
 

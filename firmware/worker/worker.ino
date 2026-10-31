@@ -33,6 +33,7 @@ void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 
 void setup() {
   Serial.begin(115200);
+  mySeq = esp_random() & 0x00FFFFFF;
   pinMode(PIN_MOTOR, OUTPUT); pinMode(PIN_BUZZER, OUTPUT); pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_KEY, INPUT_PULLUP);
   WiFi.mode(WIFI_STA);
