@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>哨兵 · 作业区安全看板</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root { --bg:#0f1720; --card:#16212d; --fg:#e6edf3; --mut:#8b9bb0; --y:#f5a623; --o:#ff6a00; --r:#ff3b30; --g:#34c759; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:16px 24px; display:flex; align-items:center; gap:16px; border-bottom:1px solid #223; }
+  header h1 { font-size:20px; margin:0; }
+  #banner { margin-left:auto; padding:6px 14px; border-radius:20px; font-weight:600; }
+  main { padding:20px 24px; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; }
+  .card { background:var(--card); border-radius:12px; padding:16px; }
+  .card h2 { font-size:15px; margin:0 0 12px; color:var(--mut); font-weight:500; }
+  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .kpi b { display:block; font-size:26px; } .kpi span { color:var(--mut); font-size:12px; }
+  .cones { display:flex; gap:10px; flex-wrap:wrap; }
+  .cone { width:84px; text-align:center; font-size:12px; color:var(--mut); }
+  .cone .tri { width:0; height:0; margin:0 auto 6px; border-left:24px solid transparent; border-right:24px solid transparent; border-bottom:48px solid #444; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td,th { padding:6px 4px; border-bottom:1px solid #223; text-align:left; }
+  pre { white-space:pre-wrap; font-size:13px; color:var(--mut); }
+  .l0{color:var(--y)} .l1{color:var(--o)} .l2{color:var(--r)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🚧 哨兵 · 公路养护作业区安全看板</h1>
+  <div id="banner">连接中…</div>
+</header>
+<main>
+  <section class="card">
+    <h2>今日统计（24 小时）</h2>
+    <div class="kpis">
+      <div class="kpi"><b id="k-total">-</b><span>通过车辆</span></div>
+      <div class="kpi"><b id="k-warn" class="l1">-</b><span>一级以上预警</span></div>
+      <div class="kpi"><b id="k-danger" class="l2">-</b><span>二级预警</span></div>
+      <div class="kpi"><b id="k-avg">-</b><span>平均车速 km/h</span></div>
+      <div class="kpi"><b id="k-top">-</b><span>最高车速 km/h</span></div>
+      <div class="kpi"><b id="k-ttc">-</b><span>最小 TTC s</span></div>
+    </div>
+  </section>
+  <section class="card">
+    <h2>锥桶阵列状态</h2>
+    <div class="cones" id="cones"></div>
+  </section>
+  <section class="card" style="grid-column:1/-1">
+    <h2>实时来车（最近 10 分钟）：速度与 TTC</h2>
+    <canvas id="chart" height="90"></canvas>
+  </section>
+  <section class="card">
+    <h2>危险接近事件</h2>
+    <table><thead><tr><th>时间</th><th>等级</th><th>车速</th><th>最小TTC</th><th>最近距离</th></tr></thead><tbody id="events"></tbody></table>
+  </section>
+  <section class="card">
+    <h2>安全报告</h2>
+    <pre id="report"></pre>
+  </section>
+</main>
+<script>
+const LV = ["安全","一级预警","二级预警"], COLOR = ["#f5a623","#ff6a00","#ff3b30"];
+const TYPE = {1:"哨兵",2:"联动",3:"工人",4:"网关"};
+const chart = new Chart(document.getElementById("chart"), {
+  type:"line",
+  data:{ datasets:[
+    {label:"车速 km/h", data:[], borderColor:"#4aa3ff", yAxisID:"y", pointRadius:0, tension:.3},
+    {label:"TTC s", data:[], borderColor:"#ff6a00", yAxisID:"y1", pointRadius:0, tension:.3}]},
+  options:{ animation:false, parsing:false, scales:{
+    x:{type:"linear", ticks:{color:"#8b9bb0", callback:v=>new Date(v*1000).toLocaleTimeString()}},
+    y:{position:"left", ticks:{color:"#8b9bb0"}}, y1:{position:"right", max:10, min:0, ticks:{color:"#8b9bb0"}, grid:{drawOnChartArea:false}}},
+    plugins:{legend:{labels:{color:"#e6edf3"}}}}
+});
+const j = u => fetch(u).then(r=>r.json());
+async function refresh(){
+  try {
+    const [s, nodes, alerts, events] = await Promise.all([j("/api/stats"), j("/api/nodes"), j("/api/alerts"), j("/api/events?limit=10")]);
+    k("total", s.total); k("warn", s.warn); k("danger", s.danger);
+    k("avg", s.avg_speed.toFixed(1)); k("top", s.top_speed.toFixed(0)); k("ttc", s.min_ttc ? s.min_ttc.toFixed(2) : "-");
+    const maxLv = Math.max(0, ...nodes.filter(n=>n.online).map(n=>n.level||0));
+    const b = document.getElementById("banner");
+    b.textContent = "当前：" + LV[maxLv]; b.style.background = COLOR[maxLv]; b.style.color = "#000";
+    document.getElementById("cones").innerHTML = nodes.map(n => `
+      <div class="cone"><div class="tri" style="border-bottom-color:${n.online ? COLOR[n.level||0] : '#333'}"></div>
+      #${n.id} ${TYPE[n.type]||""}<br>${n.online ? (n.batt ? n.batt.toFixed(2)+"V" : "在线") : "离线"}</div>`).join("");
+    chart.data.datasets[0].data = alerts.map(a=>({x:a.ts, y:a.speed}));
+    chart.data.datasets[1].data = alerts.map(a=>({x:a.ts, y:Math.min(a.ttc,10)}));
+    chart.update();
+    document.getElementById("events").innerHTML = events.map(e => `<tr>
+      <td>${new Date(e.ts*1000).toLocaleTimeString()}</td><td class="l${e.max_level}">${LV[e.max_level]}</td>
+      <td>${e.max_speed.toFixed(0)} km/h</td><td>${e.min_ttc.toFixed(2)} s</td><td>${e.min_dist.toFixed(0)} m</td></tr>`).join("");
+    document.getElementById("report").textContent = await fetch("/api/report").then(r=>r.text());
+  } catch(e) { document.getElementById("banner").textContent = "后端未连接"; }
+}
+function k(id, v){ document.getElementById("k-"+id).textContent = v; }
+refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>
