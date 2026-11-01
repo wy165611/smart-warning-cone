@@ -1,6 +1,16 @@
 __pycache__/
+*.py[cod]
 *.db
 server/data/
 .vscode/
 build/
 *.csv
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+.coverage
+htmlcov/

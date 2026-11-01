@@ -1,73 +1,138 @@
 # 哨兵 · 公路养护作业区智能预警锥桶系统
 
-> Sentinel Cone — a low-cost, radar-based active warning system for highway maintenance work zones.
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.10%2B-3776AB)](pyproject.toml)
+[![tests](https://img.shields.io/badge/tests-pytest-0A7)](tests)
 
-用百元级智能锥桶，把传统“被动隔离”的作业区升级为“**主动感知 → 分级预警 → 协同联动 → 数据上云**”的智慧作业区，服务公路养护安全生产与公路数字化转型。
+用可以放在普通锥桶上的雷达节点，把作业区从“只靠反光和隔离”补成一条短链路：**测到车 → 算碰撞时间 → 分级提醒司机和工人 → 把这次接近记下来**。
 
+它是一套能编译、能模拟、能在看板上复现的软硬件方案，用来做教学、竞赛和实验室联调。它**没有**做过开放道路上的实车试验，也不能代替《公路养护安全作业规程》规定的标志、锥桶和防护设施。
+
+**English.** Sentinel Cone is a low-cost, radar-based warning system for highway maintenance work zones. A sentinel cone measures approaching vehicles, computes time-to-collision, and raises a graded alarm. Follower cones run a light sequence, a wearable alerts the crew, and a gateway publishes MQTT messages to a small web dashboard. The Python package, simulator, and unit tests run without hardware. Field accuracy, battery life, and radio range have not been measured in this repository. See [docs/项目说明书.md](docs/项目说明书.md) for the competition write-up.
+
+## 功能
+
+- **哨兵锥桶**：24 GHz 雷达测距测速，卡尔曼平滑，按碰撞时间（TTC）和超速分成安全 / 一级 / 二级。
+- **联动锥桶**：ESP-NOW 广播后按编号错相点亮，形成指向变道方向的流水灯，并最多转发 2 跳。
+- **工人报警器**：一级短震，二级持续震动和蜂鸣；按键可让声音安静 10 秒。
+- **离线语音**：ASRPRO 在没有外网时切换作业、封道方向、雨天和夜间模式。
+- **网关与看板**：ESP-NOW 转 MQTT，FastAPI 写入 SQLite，网页看在线状态、速度、TTC 和安全报告。
+- **没有硬件也能看**：`tools/simulator.py` 向同一套主题发数据。算法、雷达帧和 API 有单元测试。
+
+## 怎么工作
+
+```mermaid
+flowchart LR
+  car[来车] --> radar[HLK-LD2451]
+  voice[ASRPRO 语音] --> sentinel[哨兵 ESP32-C3]
+  radar --> sentinel
+  sentinel -->|ESP-NOW| flow[联动锥桶流水灯]
+  sentinel -->|ESP-NOW| worker[工人报警器]
+  sentinel -->|ESP-NOW| gw[网关]
+  gw -->|MQTT cone/id/kind| api[FastAPI + SQLite]
+  api --> board[网页看板]
 ```
-来车 ──► [哨兵锥桶 #1 · 毫米波雷达测速测距] ──► TTC 分级预警（灯光 + 声响）
-                  │ ESP-NOW 广播
-                  ▼
-        [联动锥桶 #2] ─► [联动锥桶 #3] ─► …   流水灯引导车辆提前变道
-                  │
-        [工人报警器] 震动 + 声光，提示撤离
-                  │
-        [网关] ESP-NOW → Wi-Fi → MQTT
-                  ▼
-        [服务器 + 网页看板] 实时状态 · 超速统计 · 危险接近事件 · 安全报告
-```
+
+![结构示意图](docs/assets/architecture.svg)
+
+雷达帧先丢掉远离、过慢和过远的目标，再对 TTC 最小的那一个做滤波。一级默认是 TTC 小于 5 秒，或速度超过限速的 1.2 倍；二级默认是 TTC 小于 2.5 秒。雨天把两档阈值乘 1.4，夜间再乘 1.2。升级要连续 3 帧，降级立刻生效。这些数字是 `firmware/common/config.h` 里的设计默认值，**还没有用实测标定**。
+
+## 硬件与软件
+
+硬件清单、参考价和接线在 [docs/02-物料清单BOM.md](docs/02-物料清单BOM.md)、[docs/03-接线说明.md](docs/03-接线说明.md)。价格是物料清单里的市场估价，不是报价单。
+
+厂家手册中的雷达指标（本仓库没有复测）：海凌科 HLK-LD2451，FMCW，24–24.25 GHz，最远感应距离 100 m，水平 ±15°、垂直 ±7°，5 V 供电且供电能力要大于 200 mA，平均电流 107 mA，串口默认 115200 8N1。手册：<http://h.hlktech.com/download/HLK-LD2451-24G/1/HLK-LD2451%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C_V1.03%20.pdf>。
+
+| 需要 | 说明 |
+|---|---|
+| 主控 | ESP32-C3，Arduino 核心 3.x，开发板选 ESP32C3 Dev Module，并打开 USB CDC On Boot |
+| 库 | Adafruit NeoPixel；网关另加 PubSubClient |
+| 电脑 | Python 3.10+。看板依赖见 `pyproject.toml` |
+| 联调 | MQTT broker。`server/docker-compose.yml` 带一份允许匿名的 Mosquitto，只适合实验室 |
+| 可选 | `pyserial`，用于 `tools/radar_monitor.py` |
+
+`firmware/common/config.h` 里的 Wi-Fi 名称、密码和 MQTT 地址是占位符，烧录前要改成现场的值。路由器的 2.4 GHz 信道必须固定成 `WIFI_CHANNEL`，否则 ESP-NOW 和上网不能同时工作。
 
 ## 仓库结构
 
-| 目录 | 内容 |
+| 路径 | 内容 |
 |---|---|
-| `docs/01-申报书.md` | 比赛申报书完整稿（可直接改成 Word） |
-| `docs/02-物料清单BOM.md` | 全部器件、数量、参考价、购买关键词 |
-| `docs/03-接线说明.md` | 四种节点的逐线接线表与接线图 |
-| `docs/04-从零开始搭建指南.md` | 环境安装 → 烧录 → 联调 → 上云，一步一步 |
-| `docs/05-算法说明.md` | 滤波、TTC、分级预警、自适应阈值、防误报 |
-| `docs/06-通信协议.md` | 雷达串口协议、ESP-NOW 数据包、语音串口协议、MQTT 主题 |
-| `docs/07-测试方案与数据记录表.md` | 精度、提前量、误报率、续航测试方法与表格 |
-| `docs/08-演示与答辩脚本.md` | 现场演示流程、视频分镜、答辩常见问题 |
-| `docs/09-PCB与外壳设计.md` | 嘉立创 EDA 画板要点、外壳与安装方式 |
-| `firmware/common/` | 所有节点共用的协议与配置头文件 |
-| `firmware/sentinel/` | 哨兵锥桶固件（雷达 + 预警 + 广播） |
-| `firmware/follower/` | 联动锥桶固件（接收 + 流水灯） |
-| `firmware/worker/` | 工人报警器固件（震动 + 蜂鸣） |
-| `firmware/gateway/` | 网关固件（ESP-NOW 转 MQTT） |
-| `asrpro/` | ASRPRO 语音模块程序与命令词表 |
-| `server/` | Python 后端（MQTT 入库 + API）与网页看板 |
-| `tools/` | 无硬件模拟器、雷达串口调试工具、公共头文件同步脚本 |
+| [docs/项目说明书.md](docs/项目说明书.md) | 竞赛用说明书：创新点、背景、研究现状、技术路线、应用前景 |
+| `docs/01`–`09` | 申报书草稿、BOM、接线、搭建、算法、协议、测试表、答辩、结构 |
+| `firmware/` | 哨兵、联动、工人端、网关。公共头文件在 `firmware/common/` |
+| `sentinel/` | 可测试的 Python 参考实现：算法、雷达帧、入库、API |
+| `server/` | 兼容入口 `app.py`、网页、Dockerfile、compose |
+| `tools/` | 模拟器、雷达串口监视、公共头文件同步 |
+| `asrpro/` | 离线语音示例 |
+| `tests/` | pytest |
 
-## 快速开始
+## 安装与运行
 
-1. 按 `docs/02-物料清单BOM.md` 买料。
-2. 按 `docs/04-从零开始搭建指南.md` 安装 Arduino IDE + ESP32 支持包 + 库。
-3. 修改 `firmware/common/config.h` 里的 Wi-Fi 信道等参数，然后运行 `python tools/sync_common.py` 同步到各固件目录（Arduino IDE 只编译草图目录里的文件，每个目录都有一份副本）。节点编号在各 `.ino` 顶部的 `NODE_ID` 修改。
-4. 依次烧录 `sentinel`、`follower`、`worker`、`gateway`。
-5. 运行 `server/`（`docker compose up` 或 `python app.py`），浏览器打开 `http://localhost:8000`。
-6. 没有硬件时，先运行 `tools/simulator.py` 看看网页效果。
+```bash
+pip install -e ".[dev]"
+pytest
+ruff check sentinel server tools tests
+```
 
-## 验证状态
+看板（先有 MQTT，或让它在后台重试）：
 
-- 四个 ESP32-C3 固件已用 arduino-cli + esp32 核心 3.3.12（开发板 ESP32C3 Dev Module，USB CDC On Boot: Enabled）编译通过。
-- 后端 + MQTT + 模拟器已端到端跑通：节点上线、事件入库、统计、安全报告、网页均正常。
-- 尚未上实物：雷达协议、ASRPRO API 需拿到硬件后按官方手册核验。
+```bash
+# 实验室 broker + 看板。compose 的构建上下文是仓库根目录
+cd server && docker compose up --build
 
-## 关键参数（默认值，可在 config.h 修改）
+# 或者本机已经有 broker 时
+python -m sentinel
+# 等价于：python server/app.py
+```
 
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| 一级预警 TTC | 5.0 s | 或超限速 20% |
-| 二级预警 TTC | 2.5 s | 触发工人报警 |
-| 作业区限速 | 40 km/h | 按现场标志设置 |
-| 连续确认帧 | 3 帧 | 防误报 |
-| 雷达 | HLK-LD2451 | 24GHz FMCW，最远约 100 m，水平 ±15° |
+环境变量：`MQTT_HOST`、`MQTT_PORT`、`DB_PATH`、`HTTP_HOST`、`HTTP_PORT`、`SENTINEL_ROOT`。默认网页是 <http://localhost:8000>。
 
-## 安全声明
+没有硬件时：
 
-所有实测请在**封闭场地、低速**条件下进行，不得在开放道路上用真实车辆冲撞测试。本项目为教学与竞赛原型，不能替代国家标准规定的作业区交通安全设施。
+```bash
+python tools/simulator.py --host localhost
+```
 
-## License
+改完 `firmware/common/` 后同步到各草图目录：
 
-MIT
+```bash
+python tools/sync_common.py
+```
+
+雷达直连电脑：
+
+```bash
+pip install pyserial
+python tools/radar_monitor.py /dev/ttyUSB0 --csv test.csv
+```
+
+## 示例输出
+
+下图是本机看板加载**夹具数据**后的样子：1 号哨兵在线且为一级预警，统计和报告来自写入 SQLite 的虚构事件，不是路试。
+
+![看板夹具截图](docs/assets/dashboard-fixture.png)
+
+文字报告的同一函数也可以脱离网页运行。下面这段同样**不是实测**，完整文件在 [docs/assets/sample_report.txt](docs/assets/sample_report.txt)。
+
+```text
+作业区安全报告（最近 24 小时）
+通过车辆事件：3 次；一级以上预警：2 次；二级预警：1 次
+平均最高车速：48.2 km/h；最高车速：66.0 km/h；最小 TTC：1.62 s
+最危险的 5 次接近：
+  00:00:00  车速 66 km/h  最小TTC 1.62s  最近 18 m
+  00:30:00  车速 51 km/h  最小TTC 3.40s  最近 32 m
+```
+
+空数据库时，报告会写“该时段没有记录到车辆通过事件”，统计接口里的平均速度和最小 TTC 是 `null`，看板上显示为 “-”。
+
+## 文档
+
+竞赛正文从 [docs/项目说明书.md](docs/项目说明书.md) 读起。协议、算法和搭建步骤仍在 `docs/` 的分册里。说明书只引用核对过的公开页面；没有核对的数字留着【待补充】。
+
+## 安全
+
+封闭、低速的场地才能做实车试验。不要在开放道路上用真实车辆冲向作业人员。本系统是主动提醒的补充，不是防撞缓冲车，也不是标准要求的全套交通安全设施。
+
+## 许可
+
+[MIT](LICENSE)

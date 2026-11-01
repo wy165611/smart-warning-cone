@@ -4,10 +4,13 @@ services:
     ports: ["1883:1883"]
     volumes: ["./mosquitto.conf:/mosquitto/config/mosquitto.conf"]
   app:
-    build: .
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     ports: ["8000:8000"]
     environment:
       MQTT_HOST: mqtt
       DB_PATH: /data/cone.db
+      SENTINEL_ROOT: /app
     volumes: ["./data:/data"]
     depends_on: [mqtt]

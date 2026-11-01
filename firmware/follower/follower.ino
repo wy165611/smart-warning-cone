@@ -29,17 +29,21 @@ volatile uint32_t rxAt = 0;          // 进入预警的时刻（流水灯相位�
 volatile uint32_t lastAlertMs = 0;   // 最近一次收到预警包
 volatile bool     needRelay = false;
 AlertPkt relayPkt;
-uint32_t lastSeqFrom[16] = {0};      // 按发送者去重
+uint32_t lastSeqFrom[256];           // 按发送者 node_id（0–255）去重，避免 16 号以后互相覆盖
+uint8_t  seqSeen[256];               // 0 = 还没收到过该节点；否则序号 0 会被当成“已经见过”
 uint32_t mySeq = 0, lastHeartbeat = 0;
 int8_t   lastRssi = 0;
 
 // 去重：同一发送者的序号必须变大；若序号“倒退”很多，说明对方重启过，也接受
 bool isNew(uint8_t id, uint32_t seq) {
-  id &= 0x0F;
   uint32_t last = lastSeqFrom[id];
-  if (seq == last) return false;
-  if (seq < last && last - seq < 64) return false;   // 中继副本或乱序旧包
-  lastSeqFrom[id] = seq; return true;
+  if (seqSeen[id]) {
+    if (seq == last) return false;
+    if (seq < last && last - seq < 64) return false;   // 中继副本或乱序旧包
+  }
+  lastSeqFrom[id] = seq;
+  seqSeen[id] = 1;
+  return true;
 }
 
 void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {

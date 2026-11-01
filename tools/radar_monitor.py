@@ -1,72 +1,83 @@
-"""
-HLK-LD2451 雷达串口调试工具（电脑直连 USB-TTL）
-实时打印每个目标的角度、距离、方向、速度、信噪比，并可存 CSV 用于精度测试。
+"""HLK-LD2451 雷达串口调试工具（电脑直连 USB-TTL）。
+
+实时打印每个目标的角度、距离、方向、速度、信噪比，并可存 CSV。
 
 接线：USB-TTL 5V→雷达 5V，GND→GND，TX→雷达 RX，RX→雷达 TX
+
     pip install pyserial
-    python radar_monitor.py COM5            # Windows
-    python radar_monitor.py /dev/ttyUSB0 --csv test.csv
+    python tools/radar_monitor.py COM5
+    python tools/radar_monitor.py /dev/ttyUSB0 --csv test.csv
 """
+
+from __future__ import annotations
+
 import argparse
 import csv
+import sys
 import time
+from pathlib import Path
 
-import serial
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-HDR, TAIL = b"\xf4\xf3\xf2\xf1", b"\xf8\xf7\xf6\xf5"
+from sentinel.radar import FrameParser  # noqa: E402
 
 
-def frames(ser):
-    buf = b""
-    while True:
-        buf += ser.read(ser.in_waiting or 1)
+def main(argv: list[str] | None = None) -> int:
+    try:
+        import serial
+    except ImportError:
+        print("需要 pyserial：pip install pyserial", file=sys.stderr)
+        return 1
+
+    parser = argparse.ArgumentParser(description="打印 HLK-LD2451 串口目标")
+    parser.add_argument("port")
+    parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument("--csv")
+    args = parser.parse_args(argv)
+
+    port = serial.Serial(args.port, args.baud, timeout=0.1)
+    csv_file = None
+    writer = None
+    frames = FrameParser()
+    try:
+        if args.csv:
+            csv_file = open(args.csv, "w", newline="", encoding="utf-8")
+            writer = csv.writer(csv_file)
+            writer.writerow(["time", "angle", "dist_m", "approach", "speed_kmh", "snr"])
         while True:
-            i = buf.find(HDR)
-            if i < 0 or len(buf) < i + 6:
-                break
-            n = buf[i + 4] | (buf[i + 5] << 8)
-            end = i + 6 + n + 4
-            if len(buf) < end:
-                break
-            if buf[end - 4:end] == TAIL:
-                yield buf[i + 6:i + 6 + n]
-            buf = buf[end:]
-
-
-def parse(d):
-    if len(d) < 2:
-        return []
-    out = []
-    for k in range(d[0]):
-        t = d[2 + 5 * k: 7 + 5 * k]
-        if len(t) < 5:
-            break
-        out.append({"angle": t[0] - 0x80, "dist": t[1], "approach": t[2] == 1, "speed": t[3], "snr": t[4]})
-    return out
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("port")
-    ap.add_argument("--baud", type=int, default=115200)
-    ap.add_argument("--csv")
-    a = ap.parse_args()
-    ser = serial.Serial(a.port, a.baud, timeout=0.1)
-    w = None
-    if a.csv:
-        f = open(a.csv, "w", newline="", encoding="utf-8")
-        w = csv.writer(f)
-        w.writerow(["time", "angle", "dist_m", "approach", "speed_kmh", "snr"])
-    for d in frames(ser):
-        ts = time.time()
-        targets = parse(d)
-        if not targets:
-            print("无目标")
-        for t in targets:
-            print(f"角度{t['angle']:+3d}°  距离{t['dist']:3d}m  {'靠近' if t['approach'] else '远离'}  {t['speed']:3d}km/h  SNR{t['snr']}")
-            if w:
-                w.writerow([f"{ts:.2f}", t["angle"], t["dist"], int(t["approach"]), t["speed"], t["snr"]])
+            for frame in frames.feed(port.read(port.in_waiting or 1)):
+                stamp = time.time()
+                if not frame.targets:
+                    print("无目标")
+                for target in frame.targets:
+                    direction = "靠近" if target.approaching else "远离"
+                    print(
+                        f"角度{target.angle_deg:+3d}°  距离{target.dist_m:3d}m  "
+                        f"{direction}  {target.speed_kmh:3d}km/h  SNR{target.snr}"
+                    )
+                    if writer is not None:
+                        writer.writerow(
+                            [
+                                f"{stamp:.2f}",
+                                target.angle_deg,
+                                target.dist_m,
+                                int(target.approaching),
+                                target.speed_kmh,
+                                target.snr,
+                            ]
+                        )
+                if csv_file is not None:
+                    csv_file.flush()
+    except KeyboardInterrupt:
+        print("\n已停止")
+    finally:
+        if csv_file is not None:
+            csv_file.close()
+        port.close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

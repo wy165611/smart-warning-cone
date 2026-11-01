@@ -63,34 +63,45 @@
 <script>
 const LV = ["安全","一级预警","二级预警"], COLOR = ["#f5a623","#ff6a00","#ff3b30"];
 const TYPE = {1:"哨兵",2:"联动",3:"工人",4:"网关"};
-const chart = new Chart(document.getElementById("chart"), {
-  type:"line",
-  data:{ datasets:[
-    {label:"车速 km/h", data:[], borderColor:"#4aa3ff", yAxisID:"y", pointRadius:0, tension:.3},
-    {label:"TTC s", data:[], borderColor:"#ff6a00", yAxisID:"y1", pointRadius:0, tension:.3}]},
-  options:{ animation:false, parsing:false, scales:{
-    x:{type:"linear", ticks:{color:"#8b9bb0", callback:v=>new Date(v*1000).toLocaleTimeString()}},
-    y:{position:"left", ticks:{color:"#8b9bb0"}}, y1:{position:"right", max:10, min:0, ticks:{color:"#8b9bb0"}, grid:{drawOnChartArea:false}}},
-    plugins:{legend:{labels:{color:"#e6edf3"}}}}
-});
+const num = (v, d) => (v === null || v === undefined || Number.isNaN(Number(v))) ? "-" : Number(v).toFixed(d);
+let chart = null;
+if (typeof Chart !== "undefined") {
+  chart = new Chart(document.getElementById("chart"), {
+    type:"line",
+    data:{ datasets:[
+      {label:"车速 km/h", data:[], borderColor:"#4aa3ff", yAxisID:"y", pointRadius:0, tension:.3},
+      {label:"TTC s", data:[], borderColor:"#ff6a00", yAxisID:"y1", pointRadius:0, tension:.3}]},
+    options:{ animation:false, parsing:false, scales:{
+      x:{type:"linear", ticks:{color:"#8b9bb0", callback:v=>new Date(v*1000).toLocaleTimeString()}},
+      y:{position:"left", ticks:{color:"#8b9bb0"}}, y1:{position:"right", max:10, min:0, ticks:{color:"#8b9bb0"}, grid:{drawOnChartArea:false}}},
+      plugins:{legend:{labels:{color:"#e6edf3"}}}}
+  });
+}
 const j = u => fetch(u).then(r=>r.json());
 async function refresh(){
   try {
     const [s, nodes, alerts, events] = await Promise.all([j("/api/stats"), j("/api/nodes"), j("/api/alerts"), j("/api/events?limit=10")]);
     k("total", s.total); k("warn", s.warn); k("danger", s.danger);
-    k("avg", s.avg_speed.toFixed(1)); k("top", s.top_speed.toFixed(0)); k("ttc", s.min_ttc ? s.min_ttc.toFixed(2) : "-");
-    const maxLv = Math.max(0, ...nodes.filter(n=>n.online).map(n=>n.level||0));
+    k("avg", num(s.avg_speed, 1)); k("top", num(s.top_speed, 0)); k("ttc", num(s.min_ttc, 2));
+    const online = nodes.filter(n=>n.online);
     const b = document.getElementById("banner");
-    b.textContent = "当前：" + LV[maxLv]; b.style.background = COLOR[maxLv]; b.style.color = "#000";
+    if (!online.length) {
+      b.textContent = "无在线节点"; b.style.background = "#334155"; b.style.color = "#e6edf3";
+    } else {
+      const maxLv = Math.max(0, ...online.map(n=>n.level||0));
+      b.textContent = "当前：" + LV[maxLv]; b.style.background = COLOR[maxLv]; b.style.color = "#000";
+    }
     document.getElementById("cones").innerHTML = nodes.map(n => `
       <div class="cone"><div class="tri" style="border-bottom-color:${n.online ? COLOR[n.level||0] : '#333'}"></div>
-      #${n.id} ${TYPE[n.type]||""}<br>${n.online ? (n.batt ? n.batt.toFixed(2)+"V" : "在线") : "离线"}</div>`).join("");
-    chart.data.datasets[0].data = alerts.map(a=>({x:a.ts, y:a.speed}));
-    chart.data.datasets[1].data = alerts.map(a=>({x:a.ts, y:Math.min(a.ttc,10)}));
-    chart.update();
+      #${n.id} ${TYPE[n.type]||""}<br>${n.online ? (n.batt ? Number(n.batt).toFixed(2)+"V" : "在线") : "离线"}</div>`).join("");
+    if (chart) {
+      chart.data.datasets[0].data = alerts.map(a=>({x:a.ts, y:a.speed}));
+      chart.data.datasets[1].data = alerts.map(a=>({x:a.ts, y:Math.min(a.ttc,10)}));
+      chart.update();
+    }
     document.getElementById("events").innerHTML = events.map(e => `<tr>
-      <td>${new Date(e.ts*1000).toLocaleTimeString()}</td><td class="l${e.max_level}">${LV[e.max_level]}</td>
-      <td>${e.max_speed.toFixed(0)} km/h</td><td>${e.min_ttc.toFixed(2)} s</td><td>${e.min_dist.toFixed(0)} m</td></tr>`).join("");
+      <td>${new Date(e.ts*1000).toLocaleTimeString()}</td><td class="l${e.max_level}">${LV[e.max_level]||e.max_level}</td>
+      <td>${num(e.max_speed, 0)} km/h</td><td>${num(e.min_ttc, 2)} s</td><td>${num(e.min_dist, 0)} m</td></tr>`).join("");
     document.getElementById("report").textContent = await fetch("/api/report").then(r=>r.text());
   } catch(e) { document.getElementById("banner").textContent = "后端未连接"; }
 }
