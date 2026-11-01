@@ -26,7 +26,7 @@
 #define PIN_ASR_TX   21   // 接 ASRPRO RX
 #define PIN_LED      10   // WS2812 DIN（串 330Ω）
 #define PIN_BUZZER   3    // MOSFET 栅极
-#define PIN_BATT     0    // 分压后电池电压（ADC1_CH0）
+#define PIN_BATT     0    // 分压后电池电压（ADC1_CH0；C3 启动脚是 GPIO2/8/9）
 
 // 使用核心预定义的串口对象，避免重复构造同一 UART
 // （需在 Arduino IDE 中开启 USB CDC On Boot，使 Serial 走 USB，Serial0 才空闲）

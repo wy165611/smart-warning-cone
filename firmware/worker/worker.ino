@@ -15,7 +15,7 @@
 #define PIN_MOTOR    4           // 振动马达 MOSFET 栅极
 #define PIN_BUZZER   3           // 蜂鸣器 MOSFET 栅极
 #define PIN_LED      5           // 红色 LED（串 220Ω）
-#define PIN_KEY      1           // 按键接 GND，内部上拉
+#define PIN_KEY      1           // 按键接 GND，内部上拉（C3 的 UART0 在 GPIO20/21）
 #define PIN_BATT     0
 
 static const uint8_t BCAST[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};

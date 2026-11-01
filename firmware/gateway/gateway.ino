@@ -36,7 +36,7 @@ void connectWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("WiFi");
   while (WiFi.status() != WL_CONNECTED) { delay(300); Serial.print("."); }
-  Serial.printf("\nIP %s  channel %d\n", WiFi.localIP().toString().c_str(), WiFi.channel());
+  Serial.printf("\nIP %s  channel %d\n", WiFi.localIP().toString().c_str(), (int)WiFi.channel());
   if (WiFi.channel() != WIFI_CHANNEL)
     Serial.println("!! 路由器信道与 WIFI_CHANNEL 不一致，锥桶将收不到/发不到，请固定路由器信道");
 }
