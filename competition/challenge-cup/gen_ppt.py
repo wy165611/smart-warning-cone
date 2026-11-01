@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""挑战杯答辩 PPT：国赛答辩常见的“科技蓝 + 导航条 + 卡片 + 大数字”风格"""
+"""挑战杯答辩 PPT 生成脚本。
+
+风格：科技蓝 + 顶部导航条 + 卡片。全部数字来自 facts.py（仓库代码或已核对的公开资料）；
+没有实测或调研依据的内容一律写成【待补充…】/【填…】并以黄色标出，答辩前由团队据实替换。
+用法：python gen_ppt.py（需在本目录运行，先运行 figs.py 生成 img/ 下的图）。
+"""
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
@@ -8,13 +13,17 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.oxml.ns import qn
 from PIL import Image
 
+from facts import *  # noqa: F401,F403  共享事实与数字
+
 IMG = "img/"
 NAVY = RGBColor(0x0B, 0x2A, 0x5B); NAVY2 = RGBColor(0x06, 0x1A, 0x3A)
 CYAN = RGBColor(0x18, 0xA7, 0xE0); ORANGE = RGBColor(0xF2, 0x8C, 0x28); RED = RGBColor(0xE5, 0x39, 0x35)
 WHITE = RGBColor(255, 255, 255); BG = RGBColor(0xF4, 0xF7, 0xFB); GREY = RGBColor(0x5B, 0x6B, 0x82)
 LIGHT = RGBColor(0xE3, 0xEC, 0xF7); INK = RGBColor(0x1E, 0x29, 0x3B); YEL = RGBColor(0xFF, 0xF2, 0x9E)
 FONT = "微软雅黑"
-SECTIONS = ["研究背景", "解决方案", "核心技术", "测试验证", "应用价值", "团队成果"]
+PH_INK = RGBColor(0x8A, 0x4B, 0x00)
+PH_SPLIT = __import__("re").compile(r"(【[^】]*】)")
+SECTIONS = ["背景问题", "方案设计", "关键技术", "验证情况", "创新计划"]
 
 prs = Presentation()
 prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
@@ -55,16 +64,21 @@ def text(sl, x, y, w, h, t, size=16, color=INK, bold=False, align="l", anchor="t
         p.alignment = {"l": PP_ALIGN.LEFT, "c": PP_ALIGN.CENTER, "r": PP_ALIGN.RIGHT}[align]
         p.line_spacing = spacing
         segs = line if isinstance(line, list) else [(line, {})]
-        for seg, opt in segs:
-            r = p.add_run(); r.text = seg
-            f = r.font; f.name = FONT; f.size = Pt(opt.get("size", size)); f.bold = opt.get("bold", bold)
-            f.color.rgb = opt.get("color", color)
-            r._r.get_or_add_rPr().set("lang", "zh-CN")
-            rPr = r._r.get_or_add_rPr()
-            ea = rPr.find(qn("a:ea"))
-            if ea is None:
-                ea = rPr.makeelement(qn("a:ea"), {}); rPr.append(ea)
-            ea.set("typeface", FONT)
+        for seg0, opt in segs:
+            for seg in PH_SPLIT.split(seg0):
+                if not seg:
+                    continue
+                r = p.add_run(); r.text = seg
+                f = r.font; f.name = FONT; f.size = Pt(opt.get("size", size)); f.bold = opt.get("bold", bold)
+                is_ph = seg.startswith("【") and seg.endswith("】")
+                f.color.rgb = PH_INK if is_ph and color != WHITE else opt.get("color", color)
+                rPr = r._r.get_or_add_rPr()
+                rPr.set("lang", "zh-CN")
+                if is_ph:
+                    hl = rPr.makeelement(qn("a:highlight"), {})
+                    hl.append(hl.makeelement(qn("a:srgbClr"), {"val": "FFF29E" if color != WHITE else "8A6D00"}))
+                    rPr.find(qn("a:solidFill")).addnext(hl)
+                ea = rPr.makeelement(qn("a:ea"), {"typeface": FONT}); rPr.append(ea)
     return tb
 
 
@@ -124,7 +138,7 @@ def content_slide(sec_idx, title, subtitle=""):
     rect(sl, 1.24, 1.55, 1.1, 0.05, ORANGE)
     # 页脚
     rect(sl, 0, H - 0.08, W, 0.08, NAVY)
-    text(sl, 0.35, H - 0.42, 6, 0.3, "第二十届“挑战杯”全国大学生课外学术科技作品竞赛 · 科技发明制作类", size=9.5, color=GREY)
+    text(sl, 0.35, H - 0.42, 6, 0.3, f"{COMPETITION} · {CATEGORY}", size=9.5, color=GREY)
     text(sl, W - 1.0, H - 0.42, 0.7, 0.3, str(state["page"]), size=10, color=GREY, align="r")
     return sl
 
@@ -175,7 +189,7 @@ def table(sl, x, y, w, rows, col_w, size=12, row_h=0.46, highlight_col=None):
                 c.fill.fore_color.rgb = RGBColor(0xFF, 0xF1, 0xE3); r.font.color.rgb = RGBColor(0xB4, 0x52, 0x09); r.font.bold = True
             else:
                 c.fill.fore_color.rgb = WHITE if i % 2 else BG; r.font.color.rgb = INK
-            if v.startswith("【填"):
+            if v.startswith("【"):
                 c.fill.fore_color.rgb = YEL
     return tb
 
@@ -184,23 +198,47 @@ def arrow_right(sl, x, y, w=0.45, h=0.4, color=ORANGE):
     rect(sl, x, y, w, h, color, shape=MSO_SHAPE.RIGHT_ARROW)
 
 
+
+
+def ref(key):
+    return f"[{ref_no(key)}]"
+
+
+def caption(sl, x, y, w, t):
+    text(sl, x, y, w, 0.3, t, size=9.5, color=GREY)
+
+
+def numbered_rows(sl, x, y, w, items, row_h=1.15, colors=None, head_size=15, body_size=11.5):
+    colors = colors or [NAVY, CYAN, ORANGE, RED, GREY]
+    for i, (h_, b_) in enumerate(items):
+        yy = y + i * row_h
+        rect(sl, x, yy, w, row_h - 0.12, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.08)
+        n = rect(sl, x + 0.15, yy + (row_h - 0.12) / 2 - 0.3, 0.6, 0.6, colors[i % len(colors)], shape=MSO_SHAPE.OVAL)
+        shape_text(n, str(i + 1), size=16)
+        text(sl, x + 0.9, yy + 0.06, w - 1.0, 0.4, h_, size=head_size, color=NAVY, bold=True)
+        text(sl, x + 0.9, yy + 0.45, w - 1.0, row_h - 0.55, b_, size=body_size, color=INK, spacing=1.15)
+
+
+def alpha(shape, val):
+    sp = shape.fill._xPr.find(qn("a:solidFill"))[0]
+    sp.append(sp.makeelement(qn("a:alpha"), {"val": str(val)}))
+
+
 # ================================================================== 1 封面
 sl = prs.slides.add_slide(BLANK); state["page"] += 1
 pic(sl, IMG + "hero_cone.png", 0, 0, crop_to=(W, H))
-ov = rect(sl, 0, 0, 8.4, H, NAVY2)
-ov.fill.fore_color.rgb = NAVY2
-# 透明度
-sp = ov.fill._xPr.find(qn("a:solidFill"))[0]; a = sp.makeelement(qn("a:alpha"), {"val": "82000"}); sp.append(a)
+ov = rect(sl, 0, 0, 8.4, H, NAVY2); alpha(ov, 84000)
 rect(sl, 0.6, 0.75, 0.9, 0.9, WHITE, shape=MSO_SHAPE.OVAL)
 text(sl, 0.6, 1.0, 0.9, 0.4, "校徽", size=12, color=NAVY, align="c", bold=True)
-text(sl, 1.65, 0.85, 6.0, 0.7, "第二十届“挑战杯”全国大学生课外学术科技作品竞赛\n科技发明制作类", size=13, color=RGBColor(0xC9, 0xD8, 0xEE))
+text(sl, 1.65, 0.85, 6.4, 0.7, f"{COMPETITION}\n{CATEGORY}（B 类）", size=13, color=RGBColor(0xC9, 0xD8, 0xEE))
 text(sl, 0.6, 2.2, 7.6, 1.2, "哨  兵", size=60, color=WHITE, bold=True)
-text(sl, 0.62, 3.35, 7.6, 1.2, "基于毫米波雷达与协同组网的\n公路养护作业区智能预警锥桶系统", size=26, color=WHITE, bold=True, spacing=1.2)
+text(sl, 0.62, 3.35, 7.6, 1.2, SHORT_TITLE, size=26, color=WHITE, bold=True, spacing=1.2)
 rect(sl, 0.65, 4.75, 1.4, 0.07, ORANGE)
-text(sl, 0.62, 4.95, 7.4, 0.5, "让每一个锥桶都能“看见”危险", size=18, color=CYAN, bold=True)
-text(sl, 0.62, 5.9, 7.6, 0.9, ["答辩人：【填】    团队成员：【填】", "指导教师：【填】    山东理工大学 交通与车辆工程学院"], size=13, color=WHITE, spacing=1.35)
-text(sl, 8.6, H - 0.45, 4.6, 0.35, "图为产品概念渲染，答辩前替换为实物照片", size=9, color=RGBColor(0xDD, 0xDD, 0xDD), align="r")
-notes(sl, "各位评委老师好，我们是“哨兵”团队。我们的作品是基于毫米波雷达与协同组网的公路养护作业区智能预警锥桶系统，一句话概括：让每一个锥桶都能看见危险。下面从研究背景、解决方案、核心技术、测试验证、应用价值和团队成果六个方面汇报。")
+text(sl, 0.62, 4.95, 7.4, 0.5, "让锥桶能测到来车、按危险程度提醒", size=18, color=CYAN, bold=True)
+text(sl, 0.62, 5.8, 7.6, 1.0, ["答辩人：【填】    团队成员：【填】",
+                              f"指导教师：【填】    {SCHOOL}【请核对】"], size=13, color=WHITE, spacing=1.35)
+text(sl, 8.6, H - 0.45, 4.6, 0.35, "背景为 AI 生成的概念图，答辩前替换为实物照片", size=9, color=RGBColor(0xDD, 0xDD, 0xDD), align="r")
+notes(sl, "各位评委老师好，我们是“哨兵”团队。作品是基于毫米波雷达与协同组网的公路养护作业区智能预警锥桶系统：让锥桶能测到来车，并按危险程度提醒司机和工人。下面按背景问题、方案设计、关键技术、验证情况、创新与计划五部分汇报。")
 
 # ================================================================== 2 目录
 sl = prs.slides.add_slide(BLANK); state["page"] += 1
@@ -208,236 +246,261 @@ rect(sl, 0, 0, W, H, WHITE)
 rect(sl, 0, 0, 4.3, H, NAVY2)
 text(sl, 0.6, 2.6, 3.4, 1.0, "目录", size=48, color=WHITE, bold=True)
 text(sl, 0.62, 3.6, 3.4, 0.5, "CONTENTS", size=18, color=CYAN, bold=True)
-items = [("研究背景", "作业区为什么危险"), ("解决方案", "四类节点协同预警"), ("核心技术", "TTC 分级 · 滤波 · 组网"),
-         ("测试验证", "编译 · 联调 · 仿真 · 实测"), ("应用价值", "市场 · 政策 · 效益"), ("团队成果", "分工 · 知识产权")]
+items = [("背景问题", "作业区风险与现有设施的缺口"), ("方案设计", "四类节点 · 三层架构 · 现场布设"),
+         ("关键技术", "TTC 分级 · 滤波防误报 · 组网"), ("验证情况", "已完成的软件验证 · 待做的实测"),
+         ("创新计划", "作品特点 · 应用路径 · 团队计划")]
 for i, (a_, b_) in enumerate(items):
-    col, row = i % 2, i // 2
-    x = 5.0 + col * 4.1; y = 1.1 + row * 1.95
-    chip = rect(sl, x, y, 0.95, 0.95, CYAN if i % 3 else NAVY, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.18)
-    shape_text(chip, f"{i + 1:02d}", size=24)
-    text(sl, x + 1.15, y + 0.02, 2.9, 0.5, a_, size=22, color=NAVY, bold=True)
-    text(sl, x + 1.17, y + 0.55, 2.9, 0.4, b_, size=13, color=GREY)
-notes(sl, "（目录页，2 秒带过）")
+    y = 0.85 + i * 1.22
+    chip = rect(sl, 5.0, y, 0.9, 0.9, CYAN if i % 2 else NAVY, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.18)
+    shape_text(chip, f"{i + 1:02d}", size=22)
+    text(sl, 6.15, y + 0.0, 3.0, 0.5, a_, size=22, color=NAVY, bold=True)
+    text(sl, 6.17, y + 0.5, 6.5, 0.4, b_, size=13, color=GREY)
+notes(sl, "（目录页，带过即可）")
 
-# ================================================================== 3 痛点数据
-sl = content_slide(0, "作业区是道路安全最脆弱的地方", "边通车边施工，工人背对来车，事故后果严重")
-pic(sl, IMG + "workzone.png", 0.6, 1.9, crop_to=(5.6, 4.6))
-text(sl, 0.6, 6.52, 5.6, 0.3, "示意图（AI 生成），答辩前替换为团队实地调研照片", size=9, color=GREY)
-big_number(sl, 6.6, 1.95, 3.1, "850", "人", "2024 年美国作业区\n交通事故死亡人数", RED, "来源：FHWA，2026")
-big_number(sl, 9.9, 1.95, 3.1, "22", "%", "致死事故涉及追尾", ORANGE, "来源：FHWA，2026")
-big_number(sl, 6.6, 4.2, 3.1, ">50", "%", "致死事故发生在夜间", NAVY, "来源：FHWA，2026")
-big_number(sl, 9.9, 4.2, 3.1, "549.04", "万公里", "我国公路总里程\n（2024 年末）", CYAN, "来源：交通运输部统计公报", nsize=40)
-notes(sl, "养护作业通常是边通车边施工。工人面向路面、背对来车，机械噪声又大，往往车到跟前才发现。美国联邦公路管理局数据显示，2024年美国作业区事故造成850人死亡，约22%的致死事故涉及追尾，超过一半发生在夜间。我国公路总里程已达549.04万公里，养护作业点多面广。【建议补充一条国内作业区事故案例或统计】")
+# ================================================================== 3 背景
+sl = content_slide(0, "作业区是来车风险集中的地方", "边通车边施工，工人背对来车，现场噪声大")
+pic(sl, IMG + "workzone.png", 0.6, 1.9, crop_to=(5.4, 4.3))
+caption(sl, 0.6, 6.25, 5.4, "示意图（AI 生成），答辩前替换为团队实地调研照片")
+big_number(sl, 6.4, 1.8, 3.2, str(FHWA_2024_DEATHS), "人", f"2024 年美国工作区交通事故死亡\n（2023 年 {FHWA_2023_DEATHS} 人）", RED, f"FHWA-HOP-26-060 {ref('HOP-26-060')}")
+big_number(sl, 9.7, 1.8, 3.2, "过半", "", "致死事故发生在夜间；\n追尾约占四分之一", ORANGE, f"同上 {ref('HOP-26-060')}", nsize=40)
+big_number(sl, 6.4, 3.9, 3.2, ROAD_KM, "万公里", "我国公路里程（2025 年末）", NAVY, f"交通运输部统计公报 {ref('2025年')}", nsize=38)
+big_number(sl, 9.7, 3.9, 3.2, RURAL_KM, "万公里", "其中农村公路", CYAN, f"同上 {ref('2025年')}", nsize=38)
+box = rect(sl, 6.4, 5.95, 6.5, 0.85, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.12)
+text(sl, 6.55, 6.0, 6.25, 0.8, "美国数据只说明作业区来车风险被持续统计，不能代表我国。\n【待补充：我国作业区事故统计或典型案例及出处】", size=11.5, color=INK)
+notes(sl, f"养护作业通常边通车边施工，工人面向路面、背对来车，机械噪声大。美国联邦公路局2026年的资料显示，2024年美国工作区交通事故死亡{FHWA_2024_DEATHS}人，超过一半的致死事故发生在夜间，追尾约占四分之一。这是美国数据，我们只用它说明这类风险被持续统计。我国到2025年末公路里程{ROAD_KM}万公里，其中农村公路{RURAL_KM}万公里，日常小修保养点多面广。【答辩前补充一条国内统计或案例，并注明出处】")
 
-# ================================================================== 4 现有设施不足
-sl = content_slide(0, "现有防护“看不见”来车风险", "从调研中总结的五个痛点")
-pains = [("被动", "锥桶、水马、标志牌\n只能隔离提示", NAVY), ("同质", "爆闪灯固定频率闪\n司机习惯性忽略", CYAN),
-         ("滞后", "入侵报警器\n车已闯入才报警", ORANGE), ("昂贵", "智慧作业区系统\n价格高、安装复杂", RED), ("无数据", "作业区多危险\n无法量化", GREY)]
+# ================================================================== 4 缺口
+sl = content_slide(0, "现有设施能隔离和告知，但看不到来车", "以功能划分，不涉及具体产品的性能和价格")
+pains = [("被动", "锥桶、水马、标志牌\n只能隔离和告知", NAVY), ("不分级", "爆闪灯固定频率闪烁\n不区分车辆危险程度", CYAN),
+         ("滞后", "入侵报警多在车辆\n越界或碰撞后触发", ORANGE), ("盲区", "工人背对来车\n噪声中难以察觉", RED), ("无记录", "危险接近发生过几次\n事后无法查证", GREY)]
 for i, (h_, b_, c_) in enumerate(pains):
     x = 0.6 + i * 2.48
-    rect(sl, x, 2.0, 2.25, 3.6, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.06)
-    ic = rect(sl, x + 0.62, 2.3, 1.0, 1.0, c_, shape=MSO_SHAPE.OVAL); shape_text(ic, str(i + 1), size=26)
-    text(sl, x, 3.5, 2.25, 0.6, h_, size=24, color=c_, bold=True, align="c")
-    text(sl, x + 0.1, 4.2, 2.05, 1.2, b_, size=13.5, color=INK, align="c", spacing=1.25)
-box = rect(sl, 0.6, 5.95, 12.1, 0.8, NAVY, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.15)
-shape_text(box, "县乡道路、城市道路的日常小型养护，缺少“用得起、即放即用”的主动预警设备", size=18)
-notes(sl, "我们调研发现现有防护有五个痛点：被动、同质、滞后、昂贵、无数据。高速公路大型作业可以配智慧作业区系统和防撞缓冲车，但量大面广的县乡道路、城市道路日常小型养护，缺少用得起、拿来就能用的主动预警设备。这就是我们要解决的问题。")
+    rect(sl, x, 1.95, 2.25, 3.55, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.06)
+    ic = rect(sl, x + 0.62, 2.25, 1.0, 1.0, c_, shape=MSO_SHAPE.OVAL); shape_text(ic, str(i + 1), size=26)
+    text(sl, x, 3.45, 2.25, 0.6, h_, size=24, color=c_, bold=True, align="c")
+    text(sl, x + 0.1, 4.15, 2.05, 1.2, b_, size=13.5, color=INK, align="c", spacing=1.25)
+box = rect(sl, 0.6, 5.8, 12.1, 0.95, NAVY, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.15)
+shape_text(box, ["目标：在规范要求的设施之外，给普通锥桶加一层主动提醒——",
+                 "测到来车、算出还剩几秒、按危险程度提醒司机和工人，并留下记录"], size=16)
+notes(sl, "按功能看，现有设施有五个缺口：隔离设施是被动的；爆闪灯不区分危险程度；入侵报警多在车辆越界或碰撞后才触发；工人背对来车、噪声大，很难察觉；危险接近发生过几次，事后没有记录。我们的目标是在规范要求的设施之外，给普通锥桶加一层主动提醒。")
 
-# ================================================================== 5 方案总览
-section_slide(1, "解决方案", "给锥桶装上“眼睛、大脑和嗓子”，四类节点协同预警")
-sl = content_slide(1, "百元级智能锥桶 让作业区主动预警", "卡装在标准锥桶顶部 · 不改造现有设施 · 一人即可布设")
-pic(sl, IMG + "hero_cone.png", 0.6, 1.9, crop_to=(5.0, 4.75))
-roles = [("哨兵锥桶", "毫米波雷达测距测速\n计算 TTC，三级预警", ORANGE), ("联动锥桶", "ESP-NOW 接收预警\n流水灯引导变道", CYAN),
-         ("工人报警器", "二级预警震动+蜂鸣\n提醒撤离", RED), ("安全平台", "事件入库、实时看板\n自动生成安全报告", NAVY)]
+# ================================================================== 5 依据与定位
+sl = content_slide(0, "依据与定位：补充，而不是替代", "标准规定怎么摆，本作品负责“看见来车”")
+basis = [(f"JTG H30—2015 {ref('2015年第16号')}", "公路养护安全作业规程：作业区划分与安全设施布设"),
+         (f"GB 5768.4—2017 {ref('GB 5768.4')}", "道路交通标志和标线 第 4 部分：作业区"),
+         (f"23 CFR 630.1108 {ref('630.1108')}", "美国把入侵报警、速度管理、智能交通系统列为可选措施"),
+         (f"FHWA EDC-8 {ref('EDC-8')}", "夜间作业区专题推广自动入侵报警、顺序点亮的警示灯")]
+for i, (h_, b_) in enumerate(basis):
+    y = 1.9 + i * 1.18
+    rect(sl, 0.6, y, 6.6, 1.05, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.08)
+    rect(sl, 0.6, y + 0.15, 0.08, 0.75, [NAVY, NAVY, CYAN, CYAN][i])
+    text(sl, 0.85, y + 0.08, 6.2, 0.4, h_, size=15, color=NAVY, bold=True)
+    text(sl, 0.85, y + 0.5, 6.2, 0.5, b_, size=12, color=INK)
+layers = [("规范设施", "标志 · 锥桶 · 防撞设施\n按 JTG H30 / GB 5768.4 布设", GREY),
+          ("本作品", "测距测速 → TTC 分级\n声光 + 流水灯 + 工人震动", ORANGE),
+          ("管理", "接近事件入库\n安全报告 · 复盘", NAVY)]
+for i, (h_, b_, c_) in enumerate(layers):
+    y = 1.9 + i * 1.58
+    s = rect(sl, 7.7, y, 5.0, 1.38, c_, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.1)
+    text(sl, 7.9, y + 0.1, 1.6, 1.15, h_, size=18, color=WHITE, bold=True, anchor="m")
+    text(sl, 9.5, y + 0.12, 3.1, 1.15, b_, size=12.5, color=WHITE, anchor="m")
+text(sl, 0.6, 6.6, 12.1, 0.3, "国外已有入侵报警、顺序警示灯等做法，本作品不是首创；特点在于把 TTC 分级、流水灯、工人穿戴端和事件记录集成到低成本锥桶节点。", size=11, color=GREY)
+notes(sl, "我们的定位是补充而不是替代。作业区怎么划分、标志和锥桶怎么摆，按JTG H30和GB 5768.4执行；美国联邦法规把入侵报警等技术列为可选措施，联邦公路局夜间作业区专题也在推广自动入侵报警和顺序点亮的警示灯。所以这类思路不是我们首创，我们的特点是把TTC提前分级、流水灯、工人穿戴端和事件记录集成到一个低成本的锥桶节点里。")
+
+# ================================================================== 6 方案总览
+sl = content_slide(1, "方案总览：四类节点协同预警", "卡装在标准锥桶顶部 · 不改造现有设施")
+pic(sl, IMG + "hero_cone.png", 0.6, 1.9, crop_to=(5.0, 4.55))
+caption(sl, 0.6, 6.5, 5.0, "概念渲染图（AI 生成），答辩前替换为样机照片")
+roles = [("哨兵锥桶", "24 GHz 雷达测距测速\n计算 TTC，三级预警", ORANGE), ("联动锥桶", "ESP-NOW 接收预警\n错相点亮形成流水灯", CYAN),
+         ("工人报警器", "二级预警时\n震动 + 蜂鸣 + 红灯", RED), ("网关与平台", "MQTT 上传 · 事件入库\n实时看板 · 安全报告", NAVY)]
 for i, (h_, b_, c_) in enumerate(roles):
-    x = 6.0 + (i % 2) * 3.45; y = 1.9 + (i // 2) * 2.45
-    card(sl, x, y, 3.25, 2.2, h_, b_, color=c_, body_size=14)
-notes(sl, "我们的方案是给锥桶装上眼睛、大脑和嗓子。系统由四类节点组成：上游的哨兵锥桶用毫米波雷达测量来车距离和速度，计算碰撞时间做三级预警；联动锥桶接收预警，依次点亮形成流水灯；工人佩戴报警器，最危险时震动提醒撤离；平台记录每次危险接近，自动生成安全报告。")
+    x = 6.0 + (i % 2) * 3.45; y = 1.9 + (i // 2) * 2.4
+    card(sl, x, y, 3.25, 2.15, h_, b_, color=c_, body_size=14)
+notes(sl, "系统由四类节点组成。上游的哨兵锥桶用毫米波雷达测量来车距离和速度，计算碰撞时间做三级预警；联动锥桶接收预警，按编号错相点亮形成流水灯；工人报警器在最危险的二级预警时震动提醒；网关把数据转成MQTT上传，平台记录每次接近事件并生成安全报告。")
 
-# ================================================================== 6 架构
-sl = content_slide(1, "三层架构 感知—决策—平台", "判定全部在锥桶本地完成，断网也能预警")
+# ================================================================== 7 架构
+sl = content_slide(1, "三层架构：感知—边缘决策—平台", "判定全部在锥桶本地完成，网关或平台断开时预警照常工作")
 pic(sl, IMG + "arch.png", 1.35, 1.75, h=5.15)
-notes(sl, "系统分三层。感知层是雷达、语音和电量环境模式；边缘层由哨兵完成滤波、TTC计算和分级判定，通过ESP-NOW广播给联动锥桶和工人端；网关把数据转成MQTT上传平台。关键设计是判定全部在本地完成，网络中断也不影响预警。")
+notes(sl, "系统分三层。感知层是雷达、离线语音和电量与环境模式；边缘层由哨兵完成滤波、TTC计算和分级判定，通过ESP-NOW广播给联动锥桶和工人端，最多两跳；网关把报文转成MQTT上传平台。关键设计是判定全部在本地完成，网络中断不影响预警。")
 
-# ================================================================== 7 布设与流程
-sl = content_slide(1, "现场布设 一句话启动", "按 GB 5768.4 设置作业区后，把哨兵放在上游警告区")
+# ================================================================== 8 布设
+sl = content_slide(1, "现场布设与使用流程", "按 JTG H30 / GB 5768.4 设置作业区后，把哨兵放在上游、雷达朝来车")
 pic(sl, IMG + "layout.png", 1.4, 1.7, w=10.5)
-steps = [("放置", "哨兵在上游\n50–150 m"), ("启动", "说“开始作业”\n语音确认"), ("预警", "来车危险时\n声光+震动"), ("收工", "说“结束作业”\n自动出报告")]
+steps = [("放置", "哨兵放在上游\n距离按限速与视距定"), ("启动", "“小哨兵，开始作业”\n语音播报确认"), ("预警", "来车危险时\n声光 + 流水灯 + 震动"), ("收工", "“结束作业”\n平台生成安全报告")]
 for i, (h_, b_) in enumerate(steps):
     x = 0.8 + i * 3.1
-    c = rect(sl, x, 5.6, 2.45, 1.2, NAVY if i % 2 == 0 else CYAN, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.12)
-    text(sl, x, 5.63, 2.45, 0.45, h_, size=17, color=WHITE, bold=True, align="c")
-    text(sl, x, 6.05, 2.45, 0.7, b_, size=12, color=WHITE, align="c")
+    rect(sl, x, 5.55, 2.45, 1.25, NAVY if i % 2 == 0 else CYAN, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.12)
+    text(sl, x, 5.58, 2.45, 0.45, h_, size=17, color=WHITE, bold=True, align="c")
+    text(sl, x, 6.0, 2.45, 0.75, b_, size=12, color=WHITE, align="c")
     if i < 3:
-        arrow_right(sl, x + 2.53, 6.0)
-notes(sl, "现场使用很简单：按国标设置作业区后，把哨兵放在上游警告区50到150米处，雷达朝向来车；联动锥桶沿过渡区摆放。对哨兵说“开始作业”就启动，有危险自动声光震动，收工说“结束作业”，平台自动出报告。")
+        arrow_right(sl, x + 2.53, 5.97)
+notes(sl, "现场使用：先按规范设置作业区，再把哨兵放在上游，雷达朝向来车，具体距离按限速和视距确定，图中50到150米只是示意；联动锥桶沿过渡区摆放。对哨兵说“小哨兵，开始作业”启动；有危险时自动声光、流水灯和工人震动；收工说“结束作业”，平台生成安全报告。")
 
-# ================================================================== 8 TTC
-section_slide(2, "核心技术", "从“有没有车”升级为“有多危险”")
-sl = content_slide(2, "TTC 与超速双判据 三级分级预警", "TTC = 距离 ÷ 接近速度：车辆不减速还剩几秒到达")
+# ================================================================== 9 TTC
+sl = content_slide(2, "TTC 与超速双判据，三级分级预警", "TTC = 距离 ÷ 接近速度：车辆保持当前速度还需几秒到达")
 pic(sl, IMG + "ttc_map.png", 0.5, 1.75, h=5.15)
 rows = [["等级", "触发条件", "锥桶", "工人端"],
-        ["安全", "TTC ≥ 5 s 且未超速", "黄灯慢闪", "静默"],
-        ["一级", "TTC < 5 s 或超限速 20%", "红黄快闪+流水灯", "LED 提示"],
-        ["二级", "TTC < 2.5 s", "红色爆闪+蜂鸣", "强震动+蜂鸣"]]
-table(sl, 8.45, 1.95, 4.45, rows, [0.65, 1.6, 1.2, 1.0], size=10.5, row_h=0.62)
-card(sl, 8.6, 4.75, 4.3, 2.05, "环境自适应", "雨天阈值 ×1.4（制动距离变长）\n夜间阈值 ×1.2（反应时间变长）\n叠加 ×1.68，语音一键切换", color=ORANGE, body_size=13)
-notes(sl, "核心技术一是TTC与超速双判据。TTC是交通冲突技术中衡量碰撞紧迫性的经典指标，就是车辆不减速还剩几秒到达。TTC小于5秒或超速20%触发一级，小于2.5秒触发二级并通知工人撤离。雨天阈值乘1.4，夜间乘1.2，因为湿滑路面制动距离更长、夜间反应更慢。")
+        ["安全", f"TTC ≥ {TTC1:g} s 且未超速", "黄灯慢闪", "静默"],
+        ["一级", f"TTC < {TTC1:g} s 或车速 > {SPEED_LIMIT}×{OVERSPEED} km/h", "红黄快闪 + 流水灯", "LED 提示"],
+        ["二级", f"TTC < {TTC2:g} s", "红色爆闪 + 蜂鸣", "震动 + 蜂鸣"]]
+table(sl, 8.4, 1.9, 4.5, rows, [0.65, 1.65, 1.2, 1.0], size=10.5, row_h=0.62)
+card(sl, 8.4, 4.6, 4.5, 2.2, "阈值与环境系数", f"TTC 概念见 Hayward（1972）{ref('Hayward')}\n雨天 ×{RAIN}、夜间 ×{NIGHT}，可叠加 ×{RAIN * NIGHT:.2f}\n阈值与系数均为设计初值，需实测标定", color=ORANGE, body_size=12.5)
+notes(sl, f"判定用TTC，也就是车辆保持当前速度还需几秒到达，这一概念来自Hayward 1972年的交通冲突研究。TTC小于{TTC1:g}秒或车速超过限速的{OVERSPEED}倍触发一级，小于{TTC2:g}秒触发二级并通知工人。雨天阈值乘{RAIN}，夜间乘{NIGHT}，定性理由是湿滑路面制动距离更长、夜间视距更短。需要说明：这些阈值和系数是设计初值，要靠封闭场地实测来标定。")
 
-# ================================================================== 9 滤波与防误报
-sl = content_slide(2, "卡尔曼滤波加三重防误报 预警稳而准", "仿真：距离量测噪声 σ = 2 m，55 km/h 来车")
+# ================================================================== 10 滤波防误报
+sl = content_slide(2, "卡尔曼滤波 + 防误报措施", "仿真条件：55 km/h 匀速接近，距离量测噪声 σ = 2 m（理论演示，非实测）")
 pic(sl, IMG + "sim_curve.png", 0.5, 1.75, h=5.15)
-items_ = [("卡尔曼滤波", "平滑距离与速度跳变，TTC 不因单帧异常误触发"), ("连续 3 帧确认", "约 0.3 s 内确认后才升级"),
-          ("1.5 s 保持", "目标短暂丢失不闪断"), ("目标筛选", "只跟踪接近、≥5 km/h、≤100 m 的目标，多目标取 TTC 最小")]
-for i, (h_, b_) in enumerate(items_):
-    y = 1.85 + i * 1.25
-    rect(sl, 8.4, y, 4.5, 1.1, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.08)
-    n = rect(sl, 8.55, y + 0.25, 0.6, 0.6, [NAVY, CYAN, ORANGE, RED][i], shape=MSO_SHAPE.OVAL); shape_text(n, str(i + 1), size=16)
-    text(sl, 9.3, y + 0.08, 3.5, 0.4, h_, size=15, color=NAVY, bold=True)
-    text(sl, 9.3, y + 0.48, 3.55, 0.6, b_, size=11.5, color=INK)
-notes(sl, "核心技术二是稳定性。雷达读数会跳，我们用卡尔曼滤波平滑；再加连续3帧确认、目标消失后保持1.5秒、只跟踪接近目标三重措施。左图是仿真：在2米量测噪声下，滤波曲线平滑跟踪，系统因超速很快进入一级预警，TTC降到2.5秒时升级二级，全程没有误降级。")
+numbered_rows(sl, 8.4, 1.85, 4.5, [
+    ("一维卡尔曼滤波", f"Q=0.5，R=4{ref('Kalman')}，平滑距离/速度跳变"),
+    (f"连续 {CONFIRM} 帧确认", "达到条件的帧连续出现才升级"),
+    (f"按时间解除（{RELEASE_S:g} s）", "主循环计时，雷达无帧或断线也能解除"),
+    ("目标筛选", "只取接近、≥5 km/h、≤100 m 的目标\n多目标取 TTC 最小者")], row_h=1.25)
+notes(sl, f"雷达读数会跳，我们用一维卡尔曼滤波平滑，参数Q取0.5、R取4；目标需连续{CONFIRM}帧满足条件才升级；目标消失{RELEASE_S:g}秒后按时间解除，这个判断放在主循环里，雷达无帧甚至串口断开时也能按时解除；只跟踪接近、速度不低于5公里每小时、100米内的目标，多目标取最危险的一个。左图是仿真：55公里每小时已超过48公里每小时的超速线，第3帧即进入一级，TTC降到2.5秒以下时升级二级。这是理论演示，不是实测。")
 
-# ================================================================== 10 组网
-sl = content_slide(2, "锥桶自组网 毫秒级联动形成流水灯", "ESP-NOW 广播：不需要路由器和流量卡")
-mets = [("≤2", "跳", "中继扩大覆盖"), ("200", "ms", "预警期间重发间隔"), ("2–15", "ms", "随机退避转发"), ("32", "位", "序号去重")]
+# ================================================================== 11 组网
+sl = content_slide(2, "锥桶自组网：无需路由器的协同联动", f"ESP-NOW 广播{ref('esp_now')}：不依赖路由器和移动网络")
+mets = [(f"≤{MAX_HOPS}", "跳", "中继扩大覆盖"), (str(REPEAT_MS), "ms", "预警期间重发间隔"), (str(LINK_TIMEOUT_S), "s", "收不到刷新即回安全"), ("32", "位", "序号 · 按节点去重")]
 for i, (n_, u_, l_) in enumerate(mets):
     x = 0.6 + i * 3.1
-    rect(sl, x, 1.95, 2.85, 1.85, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.08)
-    big_number(sl, x, 2.05, 2.85, n_, u_, l_, [ORANGE, NAVY, CYAN, RED][i])
-flow_ = [("哨兵", "等级变化\n立即广播", ORANGE), ("联动锥桶 1", "去重后转发\n延时点亮", CYAN), ("联动锥桶 2…n", "依次点亮\n形成流水灯", CYAN), ("工人端", "二级预警\n震动+蜂鸣", RED), ("网关", "转 MQTT\n上传平台", NAVY)]
+    rect(sl, x, 1.9, 2.85, 1.85, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.08)
+    big_number(sl, x, 2.0, 2.85, n_, u_, l_, [ORANGE, NAVY, CYAN, RED][i])
+flow_ = [("哨兵", "等级变化立即广播\n预警期间每 200 ms 重发", ORANGE), ("联动锥桶 1", "去重后随机退避\n转发一次", CYAN), ("联动锥桶 2…n", "按编号错相点亮\n形成流水灯", CYAN), ("工人端", "二级预警\n震动 + 蜂鸣", RED), ("网关", "全部报文去重\n转 MQTT 上传", NAVY)]
 for i, (h_, b_, c_) in enumerate(flow_):
     x = 0.6 + i * 2.5
-    s = rect(sl, x, 4.35, 2.05, 1.75, c_, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.12)
-    text(sl, x, 4.45, 2.05, 0.5, h_, size=16, color=WHITE, bold=True, align="c")
-    text(sl, x, 5.0, 2.05, 0.9, b_, size=12.5, color=WHITE, align="c")
+    rect(sl, x, 4.2, 2.05, 1.75, c_, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.12)
+    text(sl, x, 4.3, 2.05, 0.5, h_, size=16, color=WHITE, bold=True, align="c")
+    text(sl, x + 0.05, 4.85, 1.95, 1.0, b_, size=11.5, color=WHITE, align="c")
     if i < 4:
-        arrow_right(sl, x + 2.08, 5.0, w=0.38, h=0.36)
-text(sl, 0.6, 6.35, 12.1, 0.4, "节点上电以随机序号起始，重启后不会被误判为旧包；网关按“节点+序号”去重，经中继也能完整上报", size=12.5, color=GREY)
-notes(sl, "核心技术三是组网。我们用ESP-NOW广播，不需要路由器。哨兵等级变化立即广播，预警期间每200毫秒重发；联动锥桶收到后随机退避2到15毫秒转发，最多两跳；所有节点按序号去重。联动锥桶按位置延时点亮，形成指向变道方向的流水灯，比单点爆闪更醒目。")
+        arrow_right(sl, x + 2.08, 4.85, w=0.38, h=0.36)
+text(sl, 0.6, 6.15, 12.1, 0.7, "模式配置包（开始/结束作业、封道方向）同样去重后转发一次，离哨兵较远的锥桶也能切换；心跳与事件不转发，只由网关上传。", size=12.5, color=GREY)
+notes(sl, f"组网用ESP-NOW广播，不需要路由器。哨兵等级变化立即广播，预警期间每{REPEAT_MS}毫秒重发；联动锥桶按“节点号加32位序号”去重，随机退避后转发一次，最多{MAX_HOPS}跳；模式配置包也会转发，远处的锥桶同样能切换。联动锥桶和工人端{LINK_TIMEOUT_S}秒收不到刷新就回到安全状态，避免一直报警。网关对所有报文去重后转MQTT上传。")
 
-# ================================================================== 11 工人端与语音
-sl = content_slide(2, "预警直达工人 语音一句话部署", "补上“工人背对来车”的感知盲区")
-card(sl, 0.6, 1.95, 5.9, 4.8, "工人报警器", "ESP32-C3 + 扁平振动马达 + 蜂鸣器\n500 mAh 锂电，夹在安全帽或反光背心上\n\n二级预警：强震动 + 蜂鸣 + 红灯\n噪声大、背对来车时也能第一时间感知\n\n成本约 31 元", color=RED, body_size=15)
-rows = [["语音命令", "作用"], ["开始作业 / 结束作业", "启动或收工"], ["左侧封道 / 右侧封道", "流水灯方向"], ["雨天模式开 / 关", "阈值 ×1.4"], ["夜间模式开 / 关", "阈值 ×1.2"], ["报告电量", "语音播报电量"]]
-table(sl, 6.85, 1.95, 5.9, rows, [3.2, 2.7], size=13, row_h=0.62)
-text(sl, 6.85, 5.85, 5.9, 0.9, "ASRPRO 离线识别：无网络、戴手套、站在路上都能操作", size=14, color=NAVY, bold=True)
-notes(sl, "核心技术四是人机交互。工人报警器夹在安全帽或背心上，二级预警时强震动加蜂鸣，解决工人背对来车、现场噪声大的问题。部署用离线语音，戴着手套站在路上，一句话就能开始作业、切换封道方向和天气模式。")
+# ================================================================== 12 工人端与语音
+sl = content_slide(2, "预警直达工人，语音一句话部署", "补上“工人背对来车”的感知盲区")
+card(sl, 0.6, 1.9, 5.9, 4.9, "工人报警器", f"ESP32-C3 + 振动马达 + 蜂鸣器 + 指示灯\n锂电池供电，可夹在安全帽或反光背心上\n\n一级预警：LED 提示\n二级预警：震动 + 蜂鸣 + 红灯\n{LINK_TIMEOUT_S} s 收不到哨兵刷新自动回到安全\n\n物料估算约 {COST_WORKER} 元【待补充：实际采购价】", color=RED, body_size=14)
+rows = [["语音命令", "作用"], ["开始作业 / 结束作业", "启动或收工"], ["左侧封道 / 右侧封道", "流水灯方向"], ["雨天模式开 / 关", f"阈值 ×{RAIN}"], ["夜间模式开 / 关", f"阈值 ×{NIGHT}"], ["报告电量 / 设备自检", "电量是否充足 / 声光自检"]]
+table(sl, 6.85, 1.9, 5.9, rows, [3.2, 2.7], size=13, row_h=0.6)
+text(sl, 6.85, 5.7, 5.9, 1.0, "ASRPRO 离线识别，唤醒词“小哨兵”；识别结果以 4 字节帧（9600 8N1）发给哨兵。戴手套、无网络也能操作。", size=13, color=NAVY, bold=True)
+notes(sl, "工人报警器夹在安全帽或背心上，一级预警亮灯提示，二级预警震动加蜂鸣，解决工人背对来车、现场噪声大的问题；3秒收不到刷新自动回到安全。部署用ASRPRO离线语音，唤醒词是“小哨兵”，可以开始和结束作业、切换封道方向和雨天夜间模式、播报电量是否充足和做声光自检。")
 
-# ================================================================== 12 硬件与成本
-sl = content_slide(2, "硬件选型兼顾性能与成本", "哨兵节点约 115 元 · 演示套装约 350 元（按淘宝常见价估算）")
+# ================================================================== 13 硬件与成本
+sl = content_slide(2, "硬件选型与物料估算", f"哨兵节点约 {COST_SENTINEL} 元 · 演示套装约 {COST_KIT} 元（按常见零售价估算，未含外壳与运费）")
 pic(sl, IMG + "hw.png", 0.5, 1.8, w=6.9)
-costs = [("哨兵锥桶", 115, ORANGE), ("联动锥桶", 45, CYAN), ("工人报警器", 31, RED), ("网关", 12, NAVY)]
-text(sl, 7.8, 1.85, 5, 0.45, "单节点物料成本（元）", size=16, color=NAVY, bold=True)
+costs = [("哨兵锥桶", COST_SENTINEL, ORANGE), ("联动锥桶", COST_FOLLOWER, CYAN), ("工人报警器", COST_WORKER, RED), ("网关", COST_GATEWAY, NAVY)]
+text(sl, 7.8, 1.85, 5, 0.45, "单节点物料估算（元）", size=16, color=NAVY, bold=True)
 for i, (n_, v_, c_) in enumerate(costs):
-    y = 2.45 + i * 0.75
+    y = 2.45 + i * 0.72
     text(sl, 7.8, y, 1.6, 0.5, n_, size=13.5, color=INK, anchor="m")
-    rect(sl, 9.45, y + 0.08, 3.0 * v_ / 115, 0.38, c_)
-    text(sl, 9.5 + 3.0 * v_ / 115, y, 0.9, 0.5, str(v_), size=14, color=c_, bold=True, anchor="m")
-card(sl, 7.8, 5.55, 5.0, 1.3, "关键器件", "LD2451 24GHz 雷达：≤100 m，±15°，5 V/>200 mA\nESP32-C3：RISC-V，原生 ESP-NOW", color=NAVY, head_size=14, body_size=11.5)
-notes(sl, "硬件上，主控用ESP32-C3，原生支持ESP-NOW；雷达用海凌科LD2451，24GHz调频连续波，最远探测100米、水平正负15度，专为车辆检测设计；电源是18650锂电加5V升压，满足雷达供电。哨兵节点约115元，一整套演示系统约350元。")
+    rect(sl, 9.45, y + 0.08, 2.8 * v_ / COST_SENTINEL, 0.38, c_)
+    text(sl, 9.5 + 2.8 * v_ / COST_SENTINEL, y, 0.9, 0.5, str(v_), size=14, color=c_, bold=True, anchor="m")
+card(sl, 7.8, 5.4, 5.0, 1.45, "关键器件", f"HLK-LD2451 24 GHz 雷达：标称 ≤100 m{ref('使用手册')}\nESP32-C3：RISC-V，支持 Wi-Fi 与 ESP-NOW\n【待补充：实际采购价与发票】", color=NAVY, head_size=14, body_size=11.5)
+notes(sl, f"主控用ESP32-C3，支持ESP-NOW；雷达用海凌科LD2451，24GHz，手册标称最远约100米；电源是18650锂电加5伏升压。按常见零售价估算，哨兵节点约{COST_SENTINEL}元，联动锥桶约{COST_FOLLOWER}元，工人报警器约{COST_WORKER}元，网关约{COST_GATEWAY}元，演示套装约{COST_KIT}元。实际采购价以发票为准。")
 
-# ================================================================== 13 验证
-section_slide(3, "测试验证", "软件已闭环 · 实测数据持续补充")
-sl = content_slide(3, "软件链路已全部打通", "固件编译 · 平台联调 · 算法仿真")
-done = [("固件编译通过", "四类节点固件\nArduino-ESP32 3.3.12\nFlash 占用 73%–74%", NAVY),
-        ("平台端到端联调", "MQTT → SQLite → 看板\n→ 安全报告\n全部接口正常", CYAN),
-        ("算法仿真", "σ=2 m 噪声下稳定跟踪\n超速即刻一级预警\nTTC<2.5 s 升级二级", ORANGE)]
+# ================================================================== 14 软件验证
+sl = content_slide(3, "已完成：软件链路验证", "以下结果均可在仓库中复现（2026-11-01）")
+done = [("固件编译", f"四类节点固件\n{CORE}\nFlash 占用 {FLASH_USE}，无编译告警", NAVY),
+        ("单元测试", f"Python 参考实现 {TESTS} 项测试通过\n含雷达帧解析、三级判定、\n序号去重、固件/Python 参数对账", CYAN),
+        ("端到端联调", "本机 MQTT broker + 模拟器\n→ 平台入库 → 看板 → 安全报告\n全部链路打通", ORANGE)]
 for i, (h_, b_, c_) in enumerate(done):
-    x = 0.6 + i * 2.15
-    rect(sl, x, 1.95, 1.95, 4.8, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.08)
-    ok = rect(sl, x + 0.62, 2.15, 0.7, 0.7, c_, shape=MSO_SHAPE.OVAL); shape_text(ok, "✓", size=22)
-    text(sl, x + 0.05, 3.0, 1.85, 0.8, h_, size=14.5, color=c_, bold=True, align="c")
-    text(sl, x + 0.05, 3.85, 1.85, 2.6, b_, size=11.5, color=INK, align="c", spacing=1.3)
-pic(sl, IMG + "lead_time.png", 7.15, 1.85, w=5.75)
-text(sl, 7.2, 5.6, 5.7, 1.2, "40 km/h 时雷达可提供约 9.0 s 预警窗口，60 km/h 约 6.0 s；高于约 72 km/h 时建议双哨兵级联", size=13, color=NAVY, bold=True, spacing=1.25)
-notes(sl, "目前软件链路已全部打通：四类节点固件编译通过；平台用模拟器完成了端到端联调；算法做了仿真。右图是理论分析，雷达最远100米，在40公里每小时的作业区限速下能提供约9秒预警窗口，60公里约6秒，都大于5秒的一级阈值；车速更高时我们设计了双哨兵级联方案。")
+    card(sl, 0.6, 1.85 + i * 1.5, 5.5, 1.38, h_, b_, color=c_, head_size=15, body_size=11.5)
+pic(sl, IMG + "dashboard_sim.png", 6.4, 1.85, crop_to=(6.4, 4.4))
+caption(sl, 6.4, 6.3, 6.4, "平台看板截图：数据来自模拟器，不是实测")
+text(sl, 0.6, 6.4, 5.5, 0.3, "尚未完成：实物样机与封闭场地实测（见第 16 页）", size=11.5, color=RED, bold=True)
+notes(sl, f"目前完成的是软件链路验证：四类节点固件在{CORE}下编译通过，Flash占用{FLASH_USE}；Python参考实现{TESTS}项单元测试通过，包括雷达帧解析、三级判定、序号去重，以及固件和Python参数一致性检查；在本机用MQTT服务器加模拟器跑通了平台入库、看板和安全报告。右图看板数据来自模拟器，不是实测。实物样机和封闭场地实测还在进行。")
 
-sl = content_slide(3, "封闭场地实测指标", "电动车/自行车 ≤30 km/h，专人警戒，不冲撞真人")
+# ================================================================== 15 理论时间窗
+sl = content_slide(3, "理论计算：雷达距离能留出多少时间", "t = 100 m ÷ 车速（按标称最远探测距离，实际距离需实测）")
+pic(sl, IMG + "lead_time.png", 0.5, 1.8, h=4.95)
+card(sl, 8.6, 1.9, 4.3, 2.4, "计算结果", f"{SPEED_LIMIT} km/h：约 9.0 s\n60 km/h：约 6.0 s\n72 km/h 以上不足 {TTC1:g} s，但已超过 {SPEED_LIMIT}×{OVERSPEED} km/h，按超速触发一级", color=NAVY, body_size=13)
+card(sl, 8.6, 4.5, 4.3, 2.3, "局限", "安装高度、车型、天气都会影响实际探测距离\n高速路段可研究前后两个哨兵级联（后续工作）", color=ORANGE, body_size=13)
+notes(sl, f"这是理论计算：按雷达标称最远100米，{SPEED_LIMIT}公里每小时约有9秒，60公里每小时约6秒，都大于{TTC1:g}秒的一级阈值；车速超过72公里每小时时不足{TTC1:g}秒，但这时已经超速，会按超速条件提前触发一级。实际探测距离受安装高度、车型和天气影响，要实测确认。")
+
+# ================================================================== 16 实测计划
+sl = content_slide(3, "待完成：封闭场地实测计划", "自行车/电动车 ≤30 km/h，专人警戒，不用车辆冲向真人；目标值为团队自定验收线")
 rows = [["指标", "目标值", "测试方法", "实测值"],
-        ["测速误差", "≤ ±3 km/h", "五档车速各 5 次，对比测速仪", "【填】"],
-        ["测距误差", "≤ ±2 m", "路面每 10 m 标记", "【填】"],
-        ["最远稳定检测", "≥ 80 m", "白天/夜间/小雨各 5 次", "【填】"],
-        ["一级预警提前量", "≥ 4 s", "慢动作视频逐帧计时", "【填】"],
-        ["误报率", "≤ 5%", "30 min 无目标驶近", "【填】"],
-        ["漏报率", "≤ 2%", "20 次超阈值驶近", "【填】"],
-        ["联动延迟", "≤ 100 ms", "慢动作视频逐帧 10 次", "【填】"],
-        ["续航", "≥ 8 h", "满电连续运行", "【填】"]]
-table(sl, 0.9, 1.9, 11.5, rows, [2.6, 2.2, 4.6, 2.1], size=14, row_h=0.53)
-notes(sl, "这是封闭场地实测方案和指标。测试只在封闭场地用电动车或自行车进行，车速不超过30公里每小时，专人警戒。【实测完成后把黄色格子替换为实测数据，并在这一页口头强调最亮眼的一两个数字】")
+        ["测速误差", "≤ ±3 km/h", "10～30 km/h 五档各 5 次，对比测速仪", "【待实测】"],
+        ["测距误差", "≤ ±2 m", "路面每 10 m 标记，对比雷达读数", "【待实测】"],
+        ["最远稳定检测距离", "≥ 80 m", "白天 / 夜间 / 小雨各 5 次", "【待实测】"],
+        ["一级预警提前量", "≥ 4 s", "视频逐帧计时", "【待实测】"],
+        ["误报率", "≤ 5%", "30 min 无目标驶近观察", "【待实测】"],
+        ["漏报率", "≤ 2%", "20 次超阈值驶近", "【待实测】"],
+        ["联动延迟", "≤ 100 ms", "慢动作视频逐帧，10 次", "【待实测】"],
+        ["续航", "≥ 8 h", "满电连续运行", "【待实测】"]]
+table(sl, 0.9, 1.9, 11.5, rows, [2.8, 2.0, 4.6, 2.1], size=14, row_h=0.53)
+notes(sl, "这是封闭场地实测计划，目标值是团队自己定的验收线。测试只在封闭场地用自行车或电动车，车速不超过30公里每小时，专人警戒。【实测完成后把黄色格子替换为实测数据，口头说明测试日期、地点和次数】")
 
-# ================================================================== 15 创新点
-section_slide(4, "创新与价值", "低成本 · 主动 · 协同 · 可量化")
-sl = content_slide(4, "六大创新点", "")
-inn = [("主动感知", "标准锥桶卡装雷达灯头\n让作业区“看得见”来车", NAVY), ("分级预警", "TTC+超速双判据\n雨天、夜间自适应", ORANGE),
-       ("协同组网", "无基础设施广播组网\n去重+两跳中继+流水灯", CYAN), ("工人直达", "震动+声音送到工人身上\n弥补背对来车盲区", RED),
-       ("语音部署", "离线识别 一句话\n完成启动与模式切换", NAVY), ("风险量化", "记录每次危险接近\n形成可追溯安全台账", CYAN)]
+# ================================================================== 17 创新点
+sl = content_slide(4, "作品特点", "不是首创某项技术，而是面向小型养护作业的低成本集成")
+inn = [("按危险程度提醒", f"TTC + 超速双判据分级\n平时慢闪、危险时才升级", ORANGE), ("流水灯引导", "联动锥桶错相点亮\n指示变道方向", CYAN),
+       ("预警直达工人", "二级预警送到工人身上\n弥补背对来车的盲区", RED), ("一句话部署", "离线语音切换作业、\n封道方向和环境模式", NAVY),
+       ("断网可用", "判定在锥桶本地完成\n组网不依赖路由器", NAVY), ("接近事件可追溯", "每次危险接近入库\n自动生成安全报告", CYAN)]
 for i, (h_, b_, c_) in enumerate(inn):
     x = 0.6 + (i % 3) * 4.1; y = 1.85 + (i // 3) * 2.5
     rect(sl, x, y, 3.85, 2.25, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.06)
     rect(sl, x, y, 3.85, 0.12, c_)
     text(sl, x + 0.25, y + 0.3, 1.0, 0.75, f"{i + 1:02d}", size=34, color=c_, bold=True)
-    text(sl, x + 1.3, y + 0.42, 2.45, 0.5, h_, size=20, color=NAVY, bold=True)
+    text(sl, x + 1.25, y + 0.42, 2.55, 0.5, h_, size=19, color=NAVY, bold=True)
     text(sl, x + 0.25, y + 1.15, 3.45, 1.0, b_, size=13, color=INK, spacing=1.25)
-notes(sl, "总结六个创新点：主动感知、分级预警、协同组网、工人直达、语音部署和风险量化。")
+notes(sl, "总结六个特点：按危险程度提醒、流水灯引导、预警直达工人、一句话部署、断网可用、接近事件可追溯。我们不说首创某项技术，价值在于把这些功能集成到小型养护作业用得上的低成本锥桶里。")
 
-sl = content_slide(4, "与现有方案相比 优势明显", "")
-rows = [["对比项", "爆闪灯", "入侵报警器", "智慧作业区系统", "哨兵（本作品）"],
-        ["感知来车", "×", "闯入后", "√", "√ 100 m 内"],
-        ["危险分级", "×", "×", "部分", "√ 三级"],
-        ["提醒工人", "×", "√", "部分", "√ 震动直达"],
-        ["部署难度", "低", "中", "高（专业安装）", "低（即放即用）"],
-        ["数据记录", "×", "×", "√", "√ 安全报告"],
-        ["成本", "低", "中", "高【填：调研价格】", "约 350 元/套"]]
-table(sl, 0.7, 1.9, 11.9, rows, [2.2, 2.0, 2.2, 2.9, 2.6], size=14, row_h=0.62, highlight_col=4)
-text(sl, 0.7, 6.4, 11.9, 0.4, "注：竞品价格以团队市场调研为准，答辩前补齐", size=11, color=GREY)
-notes(sl, "和现有方案对比：爆闪灯不感知来车，入侵报警器车辆闯入后才报警，智慧作业区系统功能强但贵、需要专业安装。我们在保留感知、分级、提醒工人、数据记录能力的同时，做到了即放即用、约350元一套。")
+# ================================================================== 18 功能定位对比
+sl = content_slide(4, "功能定位对比", "按工作原理比较，不代表具体产品；价格待市场调研后补充")
+rows = [["对比项", "锥桶 / 标志", "爆闪警示灯", "入侵报警类", "哨兵（本作品）"],
+        ["工作方式", "隔离、告知", "固定频率闪烁", "检测越界或碰撞", "测距测速，计算 TTC"],
+        ["触发时机", "—", "常亮 / 常闪", "车辆越界后", "车辆接近途中分级"],
+        ["提醒对象", "司机", "司机", "工人（视产品而定）", "司机 + 工人"],
+        ["数据记录", "无", "无", "视产品而定", "接近事件入库、报告"],
+        ["参考成本", "—", "【待补充】", "【待补充】", f"物料估算约 {COST_KIT} 元/套"]]
+table(sl, 0.7, 1.9, 11.9, rows, [2.0, 2.2, 2.3, 2.7, 2.7], size=14, row_h=0.66, highlight_col=4)
+text(sl, 0.7, 6.1, 11.9, 0.7, f"入侵报警技术评估见 Gambatese 等（2017）{ref('32574')}；本作品同样需要实测证明效果。【待补充：国内在售产品的名称、参数、价格及出处】", size=12, color=GREY)
+notes(sl, "按工作原理比较：锥桶和标志负责隔离告知；爆闪灯固定频率闪烁；入侵报警类多在车辆越界后触发。本作品在车辆接近途中就按TTC分级，同时提醒司机和工人，并留下记录。各类产品价格我们还在调研，没有数据之前不做价格比较。")
 
-sl = content_slide(4, "县乡道路小型养护市场广阔", "数据来源：交通运输部《2024年交通运输行业发展统计公报》")
-big_number(sl, 0.5, 1.95, 3.15, "549.04", "万公里", "全国公路里程", NAVY, nsize=38)
-big_number(sl, 3.7, 1.95, 3.15, "464.37", "万公里", "农村公路里程", ORANGE, nsize=38)
-big_number(sl, 6.9, 1.95, 3.1, "19.07", "万公里", "高速公路里程", CYAN, nsize=38)
-card(sl, 10.1, 1.95, 2.8, 2.0, "政策契合", "交通强国建设纲要\n公路数字化转型意见\n安全生产治本攻坚", color=RED, head_size=15, body_size=11.5)
-models = [("智能锥桶套装", "哨兵+联动+工人端+网关"), ("灯头改装套件", "装在现有锥桶上"), ("安全数据平台", "按年订阅，出安全台账")]
-for i, (h_, b_) in enumerate(models):
-    x = 0.6 + i * 4.1
-    s = rect(sl, x, 4.45, 3.85, 1.55, NAVY if i != 1 else CYAN, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.12)
-    text(sl, x, 4.6, 3.85, 0.55, h_, size=19, color=WHITE, bold=True, align="c")
-    text(sl, x, 5.2, 3.85, 0.6, b_, size=13, color=WHITE, align="c")
-text(sl, 0.6, 6.25, 12.2, 0.45, "目标客户：公路养护公司 · 市政养护单位 · 高速运营公司 · 交警路政 · 占道施工单位", size=14, color=NAVY, bold=True)
-notes(sl, "市场方面，全国公路里程549.04万公里，其中农村公路464.37万公里，县乡道路日常养护点多量大。现有智慧作业区产品主要面向高速公路，县乡道路应用很少。我们规划三种推广模式：整套销售、灯头改装套件和数据平台订阅。产品契合交通强国、公路数字化转型和安全生产治本攻坚等政策方向。")
-
-# ================================================================== 18 团队
-section_slide(5, "团队与成果", "交通 + 电子 + 计算机 + 设计 交叉团队")
-sl = content_slide(5, "跨学科团队 分工明确", "")
-team = [("负责人", "交通工程", "需求调研 · 预警算法\n测试方案 · 申报书"), ("成员", "电子信息", "硬件选型 · 电路 PCB\n电源 · 固件"),
-        ("成员", "计算机", "ESP-NOW 组网\n云平台开发"), ("成员", "设计/经管", "外壳结构 · 市场调研\n答辩与视频")]
-for i, (r_, m_, d_) in enumerate(team):
+# ================================================================== 19 应用前景
+sl = content_slide(4, "应用场景与推广路径", f"数据来源：交通运输部《2025年交通运输行业发展统计公报》{ref('2025年')}")
+big_number(sl, 0.5, 1.9, 3.1, ROAD_KM, "万公里", "全国公路里程", NAVY, nsize=38)
+big_number(sl, 3.6, 1.9, 3.1, RURAL_KM, "万公里", f"农村公路（县道 {COUNTY_KM}、\n乡道 {TOWNSHIP_KM}、村道 {VILLAGE_KM}）", ORANGE, nsize=38)
+big_number(sl, 6.7, 1.9, 3.1, EXPRESSWAY_KM, "万公里", "高速公路", CYAN, nsize=38)
+card(sl, 10.0, 1.9, 2.9, 2.1, "政策方向", f"交通强国建设纲要{ref('交通强国')}\n公路数字化转型意见{ref('131')}\n安全生产治本攻坚{ref('治本攻坚')}", color=RED, head_size=15, body_size=11.5)
+path = [("校内", "样机演示\n封闭场地实测"), ("试用", "联系养护单位\n短期作业试用"), ("改进", "按反馈标定阈值\n优化外壳与续航"), ("推广", "小批量制作\n形成使用指南")]
+for i, (h_, b_) in enumerate(path):
     x = 0.6 + i * 3.1
-    rect(sl, x, 1.9, 2.85, 2.9, BG, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.06)
-    av = rect(sl, x + 0.92, 2.1, 1.0, 1.0, LIGHT, shape=MSO_SHAPE.OVAL)
-    text(sl, x + 0.92, 2.42, 1.0, 0.4, "照片", size=11, color=GREY, align="c")
-    text(sl, x, 3.2, 2.85, 0.4, f"【填】  {r_}", size=14, color=NAVY, bold=True, align="c")
-    text(sl, x, 3.6, 2.85, 0.35, m_, size=12, color=ORANGE, bold=True, align="c")
-    text(sl, x + 0.1, 3.98, 2.65, 0.8, d_, size=11.5, color=INK, align="c")
-res = [("实物样机", "≥3 锥桶 + 工人端 + 网关"), ("软件平台", "看板 + 事件库 + 安全报告"), ("完整代码", "固件 / 平台 / 工具 已完成"),
-       ("知识产权", "实用新型 1 项 · 软著 1 项【填：申请号】")]
-for i, (h_, b_) in enumerate(res):
-    x = 0.6 + i * 3.1
-    s = rect(sl, x, 5.15, 2.85, 1.55, NAVY if i % 2 == 0 else CYAN, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.1)
-    text(sl, x, 5.25, 2.85, 0.5, h_, size=17, color=WHITE, bold=True, align="c")
-    text(sl, x + 0.1, 5.78, 2.65, 0.8, b_, size=11.5, color=WHITE, align="c")
-notes(sl, "我们是交通、电子、计算机、设计的交叉团队，分工如图。目前完成了全部固件、平台和工具代码，正在制作实物样机，并计划申请实用新型专利和软件著作权各一项。")
+    rect(sl, x, 4.4, 2.6, 1.5, NAVY if i % 2 == 0 else CYAN, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.12)
+    text(sl, x, 4.5, 2.6, 0.5, h_, size=18, color=WHITE, bold=True, align="c")
+    text(sl, x, 5.0, 2.6, 0.8, b_, size=12.5, color=WHITE, align="c")
+    if i < 3:
+        arrow_right(sl, x + 2.63, 4.95)
+text(sl, 0.6, 6.15, 12.2, 0.6, "适用对象：公路养护、市政养护和占道施工单位。【待补充：已联系的养护单位及试用意向（如有）】", size=13, color=NAVY, bold=True)
+notes(sl, f"到2025年末，全国公路里程{ROAD_KM}万公里，其中农村公路{RURAL_KM}万公里，高速公路{EXPRESSWAY_KM}万公里，日常小修保养点多面广。作品方向与交通强国建设纲要、公路数字化转型意见和安全生产治本攻坚行动一致。推广分四步：校内样机与实测、联系养护单位试用、按反馈改进、小批量制作。【有试用意向时在此补充】")
 
-# ================================================================== 20 结束
+# ================================================================== 20 不足与团队
+sl = content_slide(4, "不足、下一步与团队", "")
+gaps = [("实测数据", "完成封闭场地测试，标定阈值与环境系数"), ("方向判别", "LD2451 接近/远离方向需实机核对"),
+        ("通信安全", "ESP-NOW 广播未加密，计划加入报文校验与配对"), ("工程化", "外壳防水、续航测试、PCB 一体化")]
+numbered_rows(sl, 0.6, 1.85, 6.3, gaps, row_h=1.2, head_size=15, body_size=12)
+text(sl, 7.3, 1.85, 5.6, 0.45, "团队分工", size=17, color=NAVY, bold=True)
+rows = [["成员", "专业", "分工"], ["【填】（负责人）", "【填】", "需求调研 · 预警算法 · 申报书"],
+        ["【填】", "【填】", "硬件 · 电路 · 固件"], ["【填】", "【填】", "组网 · 平台"], ["【填】", "【填】", "外壳 · 调研 · 答辩"]]
+table(sl, 7.3, 2.35, 5.6, rows, [1.7, 1.2, 2.7], size=12, row_h=0.55)
+text(sl, 7.3, 5.25, 5.6, 1.5, ["指导教师：【填】", "专利 / 软著 / 获奖：【填：没有就写“暂无”】"], size=13, color=INK, spacing=1.4)
+notes(sl, "作品目前还有不足：缺少实测数据，阈值需要标定；雷达接近和远离方向的判别要实机核对；ESP-NOW广播没有加密，计划加入校验和配对；外壳防水、续航和PCB一体化还要做。团队分工如右表。【团队信息、指导教师和成果按实际填写】")
+
+# ================================================================== 21 参考资料
+sl = content_slide(4, "参考资料", "均为公开资料，已逐条打开核对（2026-11-01）")
+lines = [f"[{i}] {t_}" for i, (t_, _) in enumerate(REFS, start=1)]
+half = (len(lines) + 1) // 2
+text(sl, 0.6, 1.8, 6.0, 5.1, lines[:half], size=11.5, color=INK, spacing=1.15)
+text(sl, 6.85, 1.8, 6.0, 5.1, lines[half:], size=11.5, color=INK, spacing=1.15)
+notes(sl, "参考资料列表，链接见申报书参考文献。")
+
+# ================================================================== 22 结束
 sl = prs.slides.add_slide(BLANK); state["page"] += 1
 pic(sl, IMG + "hero_cone.png", 0, 0, crop_to=(W, H))
-ov = rect(sl, 0, 0, W, H, NAVY2)
-sp = ov.fill._xPr.find(qn("a:solidFill"))[0]; sp.append(sp.makeelement(qn("a:alpha"), {"val": "78000"}))
-text(sl, 0, 2.3, W, 1.2, "让每一个锥桶都能“看见”危险", size=44, color=WHITE, bold=True, align="c")
+ov = rect(sl, 0, 0, W, H, NAVY2); alpha(ov, 80000)
+text(sl, 0, 2.3, W, 1.2, "让锥桶测到来车，让提醒早几秒", size=44, color=WHITE, bold=True, align="c")
 rect(sl, W / 2 - 0.8, 3.65, 1.6, 0.07, ORANGE)
-text(sl, 0, 3.95, W, 0.7, "守护每一位养护工人平安回家", size=22, color=CYAN, align="c", bold=True)
+text(sl, 0, 3.95, W, 0.7, "守护养护工人平安回家", size=22, color=CYAN, align="c", bold=True)
 text(sl, 0, 5.3, W, 0.6, "恳请各位评委老师批评指正", size=20, color=WHITE, align="c")
-notes(sl, "我们希望让每一个锥桶都能看见危险，守护每一位养护工人平安回家。汇报完毕，恳请各位评委老师批评指正。")
+notes(sl, "我们希望让锥桶测到来车，让提醒早几秒，守护养护工人平安回家。汇报完毕，恳请各位评委老师批评指正。")
 
 out = "./哨兵_挑战杯答辩PPT.pptx"
 prs.save(out)
