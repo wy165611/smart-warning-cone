@@ -27,7 +27,7 @@ enum AlertLevel : uint8_t {
 enum MsgType : uint8_t {
   MSG_ALERT     = 1,   // 哨兵 → 全体：预警
   MSG_HEARTBEAT = 2,   // 任意 → 网关：在线/电量
-  MSG_CONFIG    = 3,   // 哨兵 → 全体：模式切换（来自语音）
+  MSG_CONFIG    = 3,   // 哨兵 → 全体：模式切换（来自语音，联动锥桶去重后转发一次）
   MSG_EVENT     = 4    // 哨兵 → 网关：一次完整的危险接近事件
 };
 
@@ -94,7 +94,7 @@ enum VoiceCmd : uint8_t {
   VC_NIGHT_ON   = 0x07,  // 夜间模式
   VC_NIGHT_OFF  = 0x08,  // 关闭夜间模式
   VC_BATTERY    = 0x09,  // 报告电量
-  VC_TEST       = 0x0A   // 自检（全体闪一遍）
+  VC_TEST       = 0x0A   // 哨兵本机自检（红灯+蜂鸣闪 3 次）
 };
 // 哨兵 → ASRPRO 回复（用于播报）：0xAA 0x55 0x80|状态 校验
 #define VOICE_REPLY_BATT_OK   0x81

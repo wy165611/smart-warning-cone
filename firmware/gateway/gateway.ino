@@ -8,6 +8,7 @@
 //    cone/<id>/config     模式变化
 //  注意：路由器 2.4G 信道必须固定为 config.h 中的 WIFI_CHANNEL
 //  依赖库：PubSubClient (Nick O'Leary)
+//  config.h / protocol.h 是 ../common/ 的副本；WIFI_SSID 等为占位符，烧录前在本地修改，勿提交真实密码
 // =============================================================
 #include <Arduino.h>
 #include <WiFi.h>
@@ -57,19 +58,30 @@ void publish(uint8_t id, const char *sub, const String &json) {
   Serial.printf("%s %s\n", topic, json.c_str());
 }
 
+// 原始包与中继副本序号相同，按 (节点, 序号) 去重；网关离哨兵远时也能经中继收到。
+// 规则与联动锥桶相同：同号丢弃；比上次小但相差不到 64 视为迟到的副本；
+// 相差更多视为对方重启后重新起号，照常接受。seqSeen 避免把首包序号 0 当成重复。
+uint32_t lastSeq[256];
+uint8_t  seqSeen[256];
+
+bool isNew(uint8_t id, uint32_t seq) {
+  if (seqSeen[id]) {
+    uint32_t last = lastSeq[id];
+    if (seq == last) return false;
+    if (seq < last && last - seq < 64) return false;
+  }
+  lastSeq[id] = seq;
+  seqSeen[id] = 1;
+  return true;
+}
+
 void handle(const RxItem &it) {
   const PktHeader *h = (const PktHeader*)it.data;
+  if (!isNew(h->node_id, h->seq)) return;
   char b[200];
   switch (h->type) {
     case MSG_ALERT: if (it.len == sizeof(AlertPkt)) {
       const AlertPkt *p = (const AlertPkt*)it.data;
-      // 原始包与中继副本序号相同，按 (节点, 序号) 去重；网关离哨兵远时也能经中继收到。
-      // seqSeen 避免上电时把序号 0 当成已经处理过。
-      static uint32_t lastSeq[256];
-      static uint8_t seqSeen[256];
-      if (seqSeen[h->node_id] && lastSeq[h->node_id] == h->seq) return;
-      seqSeen[h->node_id] = 1;
-      lastSeq[h->node_id] = h->seq;
       snprintf(b, sizeof(b), "{\"level\":%u,\"mode\":%u,\"speed\":%.1f,\"dist\":%.1f,\"ttc\":%.2f,\"seq\":%lu}",
                p->level, p->mode, p->speed_kmh, p->dist_m, p->ttc_s, (unsigned long)h->seq);
       publish(h->node_id, "alert", b);

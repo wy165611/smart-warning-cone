@@ -2,7 +2,7 @@
 //  工人报警器固件  (ESP32-C3 + 振动马达 + 蜂鸣器 + 单颗 LED)
 //  佩戴在工人背心/手臂上。收到二级预警 → 强震动 + 蜂鸣，提示立即撤离；
 //  一级预警 → 短震提醒。按键可“确认/静音” 10 秒。
-//  使用前：复制 ../common/config.h 与 protocol.h 到本目录（需 ESP32 Arduino 核心 3.x）
+//  config.h / protocol.h 是 ../common/ 的副本（需 ESP32 Arduino 核心 3.x）
 // =============================================================
 #include <Arduino.h>
 #include <WiFi.h>

@@ -1,8 +1,9 @@
 // =============================================================
 //  联动锥桶固件  (ESP32-C3 + WS2812 + 蜂鸣器)
 //  接收哨兵的 ESP-NOW 预警 → 按自身编号延时点亮，形成流水灯引导变道
-//  多跳中继：收到新序号的包后转发一次（hops+1，最多 2 跳）
-//  使用前：复制 ../common/config.h 与 protocol.h 到本目录，修改 NODE_ID
+//  多跳中继：收到新序号的预警包后转发一次（hops+1，最多 2 跳）；
+//            模式配置包按序号去重后也转发一次，远处锥桶同样能切换模式
+//  config.h / protocol.h 是 ../common/ 的副本；每块板烧录前修改 NODE_ID
 // =============================================================
 #include <Arduino.h>
 #include <WiFi.h>
@@ -28,7 +29,9 @@ volatile uint8_t  rxMode = MODE_WORKING;
 volatile uint32_t rxAt = 0;          // 进入预警的时刻（流水灯相位基准）
 volatile uint32_t lastAlertMs = 0;   // 最近一次收到预警包
 volatile bool     needRelay = false;
-AlertPkt relayPkt;
+volatile bool     needRelayCfg = false;
+AlertPkt  relayPkt;
+ConfigPkt relayCfg;
 uint32_t lastSeqFrom[256];           // 按发送者 node_id（0–255）去重，避免 16 号以后互相覆盖
 uint8_t  seqSeen[256];               // 0 = 尚未收到该节点。收到之后才按 lastSeq 去重，序号 0 的第一包会保留
 uint32_t mySeq = 0, lastHeartbeat = 0;
@@ -63,7 +66,13 @@ void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
     lastAlertMs = millis();
     if (p->hops < MAX_HOPS) { relayPkt = *p; relayPkt.hops++; needRelay = true; }
   } else if (h->type == MSG_CONFIG && len == sizeof(ConfigPkt)) {
-    rxMode = ((const ConfigPkt*)data)->mode;
+    // 哨兵把同一个配置包（同一序号）连发 3 次，去重后只处理、转发一次。
+    // 每个节点对同一序号只转发一次，所以不需要跳数也不会无限循环。
+    if (!isNew(h->node_id, h->seq)) return;
+    const ConfigPkt *c = (const ConfigPkt*)data;
+    rxMode = c->mode;
+    if (!(c->mode & MODE_WORKING)) rxLevel = LEVEL_SAFE;
+    relayCfg = *c; needRelayCfg = true;
   }
 }
 
@@ -120,6 +129,11 @@ void loop() {
     needRelay = false;
     delay(random(2, 15));                       // 随机退避，减少冲突
     esp_now_send(BCAST, (uint8_t*)&relayPkt, sizeof(relayPkt));
+  }
+  if (needRelayCfg) {
+    needRelayCfg = false;
+    delay(random(2, 15));
+    esp_now_send(BCAST, (uint8_t*)&relayCfg, sizeof(relayCfg));
   }
   // 哨兵掉线保护：3 秒没收到告警刷新，则回到安全状态
   if (rxLevel > LEVEL_SAFE && millis() - lastAlertMs > 3000) rxLevel = LEVEL_SAFE;

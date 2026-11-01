@@ -3,8 +3,9 @@
 //  功能：雷达测速测距 → 滤波 → TTC 分级预警 → ESP-NOW 广播联动
 //        → 语音设置模式 → 心跳/事件上报
 //  板卡：Arduino IDE 选 "ESP32C3 Dev Module"，USB CDC On Boot: Enabled
+//        （arduino-cli：--fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc）
 //  依赖库：Adafruit NeoPixel
-//  使用前：把 ../common/config.h 和 ../common/protocol.h 复制到本目录
+//  config.h / protocol.h 是 ../common/ 的副本，改参数后运行 python tools/sync_common.py
 // =============================================================
 #include <Arduino.h>
 #include <WiFi.h>
@@ -100,8 +101,11 @@ void renderOutput() {
   uint32_t period;
   uint32_t color;
   if (!(mode & MODE_WORKING)) {            // 非作业：暗黄常亮，省电
+    digitalWrite(PIN_BUZZER, LOW);
+    if (millis() - last < 500) return;     // 静态画面不必每圈刷新灯带
+    last = millis();
     strip.fill(strip.Color(60, 40, 0)); strip.show();
-    digitalWrite(PIN_BUZZER, LOW); return;
+    return;
   }
   switch (level) {
     case LEVEL_DANGER: period = 70;  color = strip.Color(255, 0, 0);   break;
@@ -132,6 +136,18 @@ void currentThresholds(float &t1, float &t2) {
   t2 = TTC_LEVEL2_S * k;
 }
 
+// 目标消失超过 RELEASE_MS 后解除告警并结束本次事件。
+// 在 loop 里按时间检查，而不是只在收到“无目标帧”时检查：
+// 雷达无目标时约 1 s 才出一帧，串口线松脱时则完全没有帧，
+// 只靠帧驱动会让告警一直挂着、事件一直不上报。
+void releaseIfIdle() {
+  if (level == LEVEL_SAFE && !inEvent) return;
+  if (millis() - lastHitMs <= RELEASE_MS) return;
+  confirmCnt = 0; level = LEVEL_SAFE; curTtc = 99;
+  kfDist.reset(); kfSpeed.reset();
+  if (inEvent) { sendEvent(); inEvent = false; }
+}
+
 void processRadar() {
   RadarFrame f;
   while (radar.poll(f)) {
@@ -145,14 +161,7 @@ void processRadar() {
       if (ttc < bestTtc) { bestTtc = ttc; bestD = t.dist_m; bestV = t.speed_kmh; found = true; }
     }
 
-    if (!found) {
-      if (millis() - lastHitMs > RELEASE_MS) {
-        confirmCnt = 0; level = LEVEL_SAFE; curTtc = 99;
-        kfDist.reset(); kfSpeed.reset();
-        if (inEvent) { sendEvent(); inEvent = false; }
-      }
-      continue;
-    }
+    if (!found) continue;                     // 是否解除由 releaseIfIdle() 按时间判断
 
     lastHitMs = millis();
     filtDist  = kfDist.update(bestD);
@@ -181,6 +190,7 @@ void processRadar() {
     Serial.printf("[RADAR] d=%.1fm v=%.1fkm/h ttc=%.2fs level=%u\n",
                   filtDist, filtSpeed, curTtc, level);
   }
+  releaseIfIdle();
   if (!(mode & MODE_WORKING)) level = LEVEL_SAFE;
 }
 
