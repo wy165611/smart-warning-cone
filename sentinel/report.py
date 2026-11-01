@@ -53,7 +53,7 @@ def format_report(stats: dict[str, Any], events: list[dict[str, Any]], hours: in
         f"最高车速：{format_fixed(stats['top_speed'], 1)} km/h；"
         f"最小 TTC：{format_fixed(stats['min_ttc'], 2)} s"
     )
-    lines.append("最危险的 5 次接近：")
+    lines.append(f"最危险的 {len(events)} 次接近（按最小 TTC 排序，最多列 5 次）：")
     for event in events:
         clock = time.strftime("%H:%M:%S", time.localtime(event["ts"]))
         lines.append(
