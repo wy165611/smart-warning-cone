@@ -30,7 +30,7 @@ volatile uint32_t lastAlertMs = 0;   // 最近一次收到预警包
 volatile bool     needRelay = false;
 AlertPkt relayPkt;
 uint32_t lastSeqFrom[256];           // 按发送者 node_id（0–255）去重，避免 16 号以后互相覆盖
-uint8_t  seqSeen[256];               // 0 = 还没收到过该节点；否则序号 0 会被当成“已经见过”
+uint8_t  seqSeen[256];               // 0 = 尚未收到该节点。收到之后才按 lastSeq 去重，序号 0 的第一包会保留
 uint32_t mySeq = 0, lastHeartbeat = 0;
 int8_t   lastRssi = 0;
 

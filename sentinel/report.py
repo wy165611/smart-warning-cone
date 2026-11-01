@@ -7,9 +7,15 @@ import time
 from typing import Any
 
 
+def format_fixed(value: float, digits: int) -> str:
+    """非负数下与看板 Number.toFixed 一致（.5 进位，不走 Python 的银行家舍入）。"""
+    factor = 10**digits
+    scaled = math.floor(float(value) * factor + 0.5)
+    return f"{scaled / factor:.{digits}f}"
+
+
 def format_kmh(value: float) -> str:
-    """与看板 toFixed(0) 一样，四舍五入到整数。"""
-    return str(math.floor(float(value) + 0.5))
+    return format_fixed(value, 0)
 
 
 def normalize_stats(row: dict[str, Any]) -> dict[str, Any]:
@@ -43,15 +49,16 @@ def format_report(stats: dict[str, Any], events: list[dict[str, Any]], hours: in
         f"二级预警：{stats['danger']} 次"
     )
     lines.append(
-        f"平均最高车速：{stats['avg_speed']:.1f} km/h；"
-        f"最高车速：{stats['top_speed']:.1f} km/h；"
-        f"最小 TTC：{stats['min_ttc']:.2f} s"
+        f"平均最高车速：{format_fixed(stats['avg_speed'], 1)} km/h；"
+        f"最高车速：{format_fixed(stats['top_speed'], 1)} km/h；"
+        f"最小 TTC：{format_fixed(stats['min_ttc'], 2)} s"
     )
     lines.append("最危险的 5 次接近：")
     for event in events:
         clock = time.strftime("%H:%M:%S", time.localtime(event["ts"]))
         lines.append(
             f"  {clock}  车速 {format_kmh(event['max_speed'])} km/h  "
-            f"最小TTC {event['min_ttc']:.2f}s  最近 {event['min_dist']:.0f} m"
+            f"最小TTC {format_fixed(event['min_ttc'], 2)}s  "
+            f"最近 {format_fixed(event['min_dist'], 0)} m"
         )
     return "\n".join(lines)

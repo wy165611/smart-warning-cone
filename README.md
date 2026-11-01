@@ -6,7 +6,7 @@
 
 用可以放在普通锥桶上的雷达节点，把作业区从“只靠反光和隔离”补成一条短链路：**测到车 → 算碰撞时间 → 分级提醒司机和工人 → 把这次接近记下来**。
 
-它是一套能编译、能模拟、能在看板上复现的软硬件方案，用来做教学、竞赛和实验室联调。它**没有**做过开放道路上的实车试验，也不能代替《公路养护安全作业规程》规定的标志、锥桶和防护设施。
+Python 部分可以不接硬件跑模拟和看板。固件按 Arduino 草图来组织；这次改过的草图还没有重新烧录。它用来做教学、竞赛和实验室联调，**没有**做过开放道路上的实车试验，也不能代替《公路养护安全作业规程》规定的标志、锥桶和防护设施。
 
 **English.** Sentinel Cone is a low-cost, radar-based warning system for highway maintenance work zones. A sentinel cone measures approaching vehicles, computes time-to-collision, and raises a graded alarm. Follower cones run a light sequence, a wearable alerts the crew, and a gateway publishes MQTT messages to a small web dashboard. The Python package, simulator, and unit tests run without hardware. Field accuracy, battery life, and radio range have not been measured in this repository. See [docs/项目说明书.md](docs/项目说明书.md) for the competition write-up.
 
@@ -35,7 +35,7 @@ flowchart LR
 
 ![结构示意图](docs/assets/architecture.svg)
 
-雷达帧先丢掉远离、过慢和过远的目标，再对 TTC 最小的那一个做滤波。一级默认是 TTC 小于 5 秒，或速度超过限速的 1.2 倍；二级默认是 TTC 小于 2.5 秒。雨天把两档阈值乘 1.4，夜间再乘 1.2。升级要连续 3 帧，降级立刻生效。这些数字是 `firmware/common/config.h` 里的设计默认值，**还没有用实测标定**。
+雷达帧先丢掉远离、过慢和过远的目标，再对 TTC 最小的那一个做滤波。一级默认是 TTC 小于 5 秒，或速度超过限速的 1.2 倍；二级默认是 TTC 小于 2.5 秒。只开雨天时两档阈值乘 1.4，只开夜间乘 1.2，两个都开则连乘（1.68）。升级要连续 3 帧，降级立刻生效。这些数字是 `firmware/common/config.h` 里的设计默认值，**还没有用实测标定**。
 
 ## 硬件与软件
 
@@ -117,7 +117,7 @@ python tools/radar_monitor.py /dev/ttyUSB0 --csv test.csv
 ```text
 作业区安全报告（最近 24 小时）
 通过车辆事件：3 次；一级以上预警：2 次；二级预警：1 次
-平均最高车速：48.2 km/h；最高车速：66.0 km/h；最小 TTC：1.62 s
+平均最高车速：48.3 km/h；最高车速：66.0 km/h；最小 TTC：1.62 s
 最危险的 5 次接近：
   00:00:00  车速 66 km/h  最小TTC 1.62s  最近 18 m
   00:30:00  车速 51 km/h  最小TTC 3.40s  最近 32 m

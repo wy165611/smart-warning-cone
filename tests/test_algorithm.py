@@ -7,7 +7,7 @@ from sentinel.algorithm import (
     ttc_seconds,
     update_confirm,
 )
-from sentinel.report import format_kmh
+from sentinel.report import format_fixed, format_kmh
 
 
 def test_ttc_matches_distance_over_speed() -> None:
@@ -47,6 +47,14 @@ def test_confirm_upgrades_after_three_frames_and_downgrades_immediately() -> Non
     assert (level, count) == (0, 0)
 
 
+def test_does_not_select_target_at_the_firmware_ttc_ceiling() -> None:
+    # 36 km/h = 10 m/s，990 m 的 TTC 恰好是 99 s，固件的初值比较是严格小于。
+    same = Track(990, 36, True)
+    closer = Track(980, 36, True)
+    assert select_threat([same], min_speed_kmh=5, max_dist_m=1000) is None
+    assert select_threat([same, closer], min_speed_kmh=5, max_dist_m=1000) == closer
+
+
 def test_selects_smallest_ttc_and_ignores_receding_or_slow_targets() -> None:
     chosen = select_threat(
         [
@@ -63,6 +71,8 @@ def test_selects_smallest_ttc_and_ignores_receding_or_slow_targets() -> None:
 def test_report_speed_rounds_half_up_like_the_dashboard() -> None:
     assert format_kmh(46.5) == "47"
     assert format_kmh(46.4) == "46"
+    assert format_fixed(48.25, 1) == "48.3"
+    assert format_fixed(1.25, 1) == "1.3"
 
 
 def test_kalman_first_sample_is_measurement_then_pulls_toward_next() -> None:

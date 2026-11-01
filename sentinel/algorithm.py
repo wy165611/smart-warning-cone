@@ -103,7 +103,8 @@ def select_threat(
         if target.speed_kmh < min_speed_kmh or target.dist_m > max_dist_m:
             continue
         ttc = ttc_seconds(target.dist_m, target.speed_kmh)
-        if best is None or ttc < best_ttc:
+        # 固件初值是 99，并且只用“严格小于”，所以 TTC 恰好为 99 s 的目标不会被选中。
+        if ttc < best_ttc:
             best = target
             best_ttc = ttc
     return best
