@@ -6,17 +6,17 @@
 
 用可以放在普通锥桶上的雷达节点，把作业区从“只靠反光和隔离”补成一条短链路：**测到车 → 算碰撞时间 → 分级提醒司机和工人 → 把这次接近记下来**。
 
-Python 部分可以不接硬件跑模拟和看板。四个 Arduino 草图已用 Arduino-ESP32 核心 3.3.12 编译通过（2026-11-01），但**还没有**烧录到实物上运行。本项目用于教学、竞赛和实验室联调，**没有**做过实车试验，也不能代替《公路养护安全作业规程》规定的标志、锥桶和防护设施。
+Python 部分可以不接硬件跑模拟和看板。四个 Arduino 草图已用 Arduino-ESP32 核心 3.3.12 编译通过（2026-11-01）。2026-11-03 又改了告警状态机和去重，这次环境没有 arduino-cli，**没有重新编译**，也**还没有**烧录到实物上运行。本项目用于教学、竞赛和实验室联调，**没有**做过实车试验，也不能代替《公路养护安全作业规程》规定的标志、锥桶和防护设施。
 
 **English.** Sentinel Cone is a low-cost, radar-based warning system for highway maintenance work zones. A sentinel cone measures approaching vehicles, computes time-to-collision, and raises a graded alarm. Follower cones run a light sequence, a wearable alerts the crew, and a gateway publishes MQTT messages to a small web dashboard. The Python package, simulator, and unit tests run without hardware. Field accuracy, battery life, and radio range have not been measured in this repository. See [docs/项目说明书.md](docs/项目说明书.md) for the competition write-up.
 
 ## 功能
 
 - **哨兵锥桶**：24 GHz 雷达测距测速，卡尔曼平滑，按碰撞时间（TTC）和超速分成安全 / 一级 / 二级。
-- **联动锥桶**：ESP-NOW 广播后按编号错相点亮，形成指向变道方向的流水灯；预警包最多转发 2 跳，模式配置包去重后转发一次。
-- **工人报警器**：一级短震，二级持续震动和蜂鸣；按键可让声音安静 10 秒。
+- **联动锥桶**：ESP-NOW 广播后按编号错相点亮，形成指向变道方向的流水灯；预警包最多转发 2 跳，模式配置包去重后转发一次。中继在收到包的任务里只入队，由主循环发出，避免两个任务同时改同一块报文。
+- **工人报警器**：一级短震，二级持续震动和蜂鸣；按键可让声音安静 10 秒。预警包与联动锥桶、网关使用同一套序号去重，迟到的中继副本不会把已解除的告警重新打开。
 - **离线语音**：ASRPRO 在没有外网时切换作业、封道方向、雨天和夜间模式。
-- **网关与看板**：ESP-NOW 转 MQTT，FastAPI 写入 SQLite，网页看在线状态、速度、TTC 和安全报告。
+- **网关与看板**：ESP-NOW 转 MQTT，FastAPI 写入 SQLite，网页看在线状态、速度、TTC 和安全报告。曲线用随仓库分发的 Chart.js 4.4.6（MIT），不依赖外网 CDN。
 - **没有硬件也能看**：`tools/simulator.py` 向同一套主题发数据。算法、雷达帧、序号去重和 API 有单元测试，另有测试直接读取固件头文件，检查阈值和命令码与 Python 一致。
 
 ## 怎么工作
@@ -35,7 +35,7 @@ flowchart LR
 
 ![结构示意图](docs/assets/architecture.svg)
 
-雷达帧先丢掉远离、过慢和过远的目标，再对 TTC 最小的那一个做滤波。目标消失 1.5 s 后解除告警（主循环按时间判断，雷达不出帧也能解除）。一级默认是 TTC 小于 5 秒，或速度超过限速的 1.2 倍；二级默认是 TTC 小于 2.5 秒。只开雨天时两档阈值乘 1.4，只开夜间乘 1.2，两个都开则连乘（1.68）。升级要连续 3 帧，降级立刻生效。这些数字是 `firmware/common/config.h` 里的设计默认值，**还没有用实测标定**。
+雷达帧先丢掉远离、过慢和过远的目标，再对 TTC 最小的那一个做滤波。目标消失 1.5 s 后解除告警（主循环按时间判断，雷达不出帧也能解除）。一级默认是 TTC 小于 5 秒，或速度超过限速的 1.2 倍；二级默认是 TTC 小于 2.5 秒。只开雨天时两档阈值乘 1.4，只开夜间乘 1.2，两个都开则连乘（1.68）。升级要连续 3 帧，降级立刻生效。非作业模式不累计这 3 帧，结束作业会立刻解除，并收口尚未上报的通过事件。这些数字是 `firmware/common/config.h` 里的设计默认值，**还没有用实测标定**。
 
 ## 硬件与软件
 

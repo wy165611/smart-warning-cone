@@ -1,4 +1,8 @@
-"""ESP-NOW 序号去重，与 follower.ino / gateway.ino 里的 isNew() 相同。"""
+"""ESP-NOW 序号去重，与 firmware/common/protocol.h 的 seqIsNew() 相同。
+
+联动锥桶、工人端和网关都调用这个函数。工人端若不做去重，
+迟到的中继副本会把已经解除的告警重新打开。
+"""
 
 from __future__ import annotations
 

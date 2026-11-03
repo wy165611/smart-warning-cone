@@ -1,8 +1,13 @@
 from sentinel.algorithm import (
+    MODE_NIGHT,
+    MODE_RAIN,
+    MODE_WORKING,
     Kalman1D,
+    ThreatTracker,
     Thresholds,
     Track,
     alert_level,
+    elapsed_ms,
     select_threat,
     ttc_seconds,
     update_confirm,
@@ -45,6 +50,102 @@ def test_confirm_upgrades_after_three_frames_and_downgrades_immediately() -> Non
     assert level == 2
     level, count = update_confirm(level, count, 0)
     assert (level, count) == (0, 0)
+    level, count = 0, 0
+    for _ in range(10):
+        level, count = update_confirm(level, count, 1)
+    assert (level, count) == (1, 3)
+
+
+def _danger() -> list[Track]:
+    return [Track(20, 60, True)]
+
+
+def test_release_holds_until_the_window_expires_and_then_zeroes_the_live_state() -> None:
+    tracker = ThreatTracker()
+    step = None
+    for stamp in (0, 100, 200):
+        step = tracker.on_radar([_danger()], stamp)
+    assert step is not None
+    assert step.level == 2
+    assert tracker.on_radar([], 200 + 1500).closed is None
+    assert tracker.on_radar([], 200 + 1500).level == 2
+    done = tracker.on_radar([], 200 + 1501)
+    assert done.level == 0
+    assert done.dist_m == 0
+    assert done.speed_kmh == 0
+    assert done.closed is not None
+    assert done.closed.max_level == 2
+    assert done.closed.duration_ms == 1701
+
+
+def test_release_timer_survives_millis_wrap() -> None:
+    near = 0xFFFFFFF0
+    tracker = ThreatTracker()
+    for _ in range(3):
+        step = tracker.on_radar([_danger()], near)
+    assert step.level == 2
+    wrapped = (near + 100) & 0xFFFFFFFF
+    assert elapsed_ms(wrapped, near) == 100
+    held = tracker.on_radar([], wrapped)
+    assert held.level == 2
+    assert held.closed is None
+
+
+def test_filtered_safe_reading_drops_the_level_without_closing_the_passage() -> None:
+    tracker = ThreatTracker()
+    for stamp in (0, 100, 200):
+        tracker.on_radar([_danger()], stamp)
+    # 滤波还停在近处，一帧 90 m 只把二级拉到一级，不会结束这次通过。
+    first = tracker.on_radar([[Track(90, 20, True)]], 300)
+    assert first.level == 1
+    assert first.closed is None
+    second = tracker.on_radar([[Track(90, 20, True)]], 400)
+    assert second.level == 0
+    assert second.closed is None
+    assert tracker.on_radar([], 400 + 1500).closed is None
+    done = tracker.on_radar([], 400 + 1501)
+    assert done.closed is not None
+    assert done.closed.max_level == 2
+
+
+def test_idle_mode_does_not_prime_confirmation_or_record_a_passage() -> None:
+    tracker = ThreatTracker(mode=0)
+    for stamp in (0, 100, 200):
+        step = tracker.on_radar([_danger()], stamp)
+        assert step.level == 0
+        assert step.closed is None
+    tracker.set_mode(MODE_WORKING, 300)
+    assert tracker.on_radar([_danger()], 400).level == 0
+    assert tracker.on_radar([_danger()], 500).level == 0
+    assert tracker.on_radar([_danger()], 600).level == 2
+
+
+def test_leaving_work_mode_closes_the_passage_once() -> None:
+    tracker = ThreatTracker()
+    for stamp in (0, 100, 200):
+        tracker.on_radar([_danger()], stamp)
+    step = tracker.set_mode(0, 250)
+    assert step.level == 0
+    assert step.dist_m == 0
+    assert step.closed is not None
+    assert step.closed.max_level == 2
+    assert step.closed.duration_ms == 250
+    assert tracker.on_radar([_danger()], 300).closed is None
+    assert tracker.on_radar([_danger()], 300).level == 0
+
+
+def test_rain_and_night_change_the_confirmed_level() -> None:
+    dry = ThreatTracker()
+    wet = ThreatTracker(mode=MODE_WORKING | MODE_RAIN | MODE_NIGHT)
+    # 30 m、40 km/h：TTC = 2.7 s。干燥时只到一级；雨夜阈值放大后进入二级。
+    sample = [[Track(30, 40, True)]]
+    dry_step = wet_step = None
+    for stamp in (0, 100, 200):
+        dry_step = dry.on_radar(sample, stamp)
+        wet_step = wet.on_radar(sample, stamp)
+    assert dry_step is not None and wet_step is not None
+    assert dry_step.level == 1
+    assert wet_step.level == 2
 
 
 def test_does_not_select_target_at_the_firmware_ttc_ceiling() -> None:

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>哨兵 · 作业区安全看板</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="/static/chart.umd.min.js"></script>
 <style>
   :root { --bg:#0f1720; --card:#16212d; --fg:#e6edf3; --mut:#8b9bb0; --y:#f5a623; --o:#ff6a00; --r:#ff3b30; --g:#34c759; }
   * { box-sizing:border-box; }
@@ -51,7 +51,7 @@
   <section class="card" style="grid-column:1/-1">
     <h2>实时来车（最近 10 分钟）：速度与 TTC</h2>
     <canvas id="chart" height="90"></canvas>
-    <p id="chart-hint" style="display:none;color:var(--mut);font-size:13px">曲线需要从 CDN 加载 Chart.js；离线现场请改用本地副本。其余数据不受影响。</p>
+    <p id="chart-hint" style="display:none;color:var(--mut);font-size:13px">曲线脚本没有加载成功，其余数据不受影响。</p>
   </section>
   <section class="card">
     <h2>危险接近事件</h2>
@@ -67,6 +67,12 @@ const LV = ["安全","一级预警","二级预警"], COLOR = ["#f5a623","#ff6a00
 const TYPE = {1:"哨兵",2:"联动",3:"工人",4:"网关"};
 const clock = ts => new Date(ts*1000).toLocaleTimeString("zh-CN", {hour12:false});
 const num = (v, d) => (v === null || v === undefined || Number.isNaN(Number(v))) ? "-" : Number(v).toFixed(d);
+const levelOf = v => (v === 0 || v === 1 || v === 2) ? v : 0;
+const volts = n => {
+  if (!n.online) return "离线";
+  if (n.batt === null || n.batt === undefined || Number.isNaN(Number(n.batt))) return "在线";
+  return Number(n.batt).toFixed(2) + "V";
+};
 let chart = null;
 if (typeof Chart === "undefined") document.getElementById("chart-hint").style.display = "block";
 else {
@@ -92,19 +98,19 @@ async function refresh(){
     if (!online.length) {
       b.textContent = "无在线节点"; b.style.background = "#334155"; b.style.color = "#e6edf3";
     } else {
-      const maxLv = Math.max(0, ...online.map(n=>n.level||0));
+      const maxLv = online.reduce((m, n) => Math.max(m, levelOf(n.level)), 0);
       b.textContent = "当前：" + LV[maxLv]; b.style.background = COLOR[maxLv]; b.style.color = "#000";
     }
     document.getElementById("cones").innerHTML = nodes.map(n => `
-      <div class="cone"><div class="tri" style="border-bottom-color:${n.online ? COLOR[n.level||0] : '#333'}"></div>
-      #${n.id} ${TYPE[n.type]||""}<br>${n.online ? (n.batt ? Number(n.batt).toFixed(2)+"V" : "在线") : "离线"}</div>`).join("");
+      <div class="cone"><div class="tri" style="border-bottom-color:${n.online ? COLOR[levelOf(n.level)] : '#333'}"></div>
+      #${n.id} ${TYPE[n.type]||""}<br>${volts(n)}</div>`).join("");
     if (chart) {
       chart.data.datasets[0].data = alerts.map(a=>({x:a.ts, y:a.speed}));
       chart.data.datasets[1].data = alerts.map(a=>({x:a.ts, y:Math.min(a.ttc,10)}));
       chart.update();
     }
     document.getElementById("events").innerHTML = events.map(e => `<tr>
-      <td>${clock(e.ts)}</td><td class="l${e.max_level}">${LV[e.max_level]||e.max_level}</td>
+      <td>${clock(e.ts)}</td><td class="l${levelOf(e.max_level)}">${LV[levelOf(e.max_level)]}</td>
       <td>${num(e.max_speed, 0)} km/h</td><td>${num(e.min_ttc, 2)} s</td><td>${num(e.min_dist, 0)} m</td></tr>`).join("");
     document.getElementById("report").textContent = await fetch("/api/report").then(r=>r.text());
   } catch(e) { document.getElementById("banner").textContent = "后端未连接"; }

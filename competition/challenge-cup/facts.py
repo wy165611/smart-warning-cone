@@ -30,11 +30,14 @@ COST_WORKER = 31
 COST_GATEWAY = 12
 COST_KIT = 350
 
-# ---- 本仓库复现过的验证（2026-11-01） ----
+# ---- 本仓库复现过的验证 ----
+# 编译和 Flash 占用是 2026-11-01 的记录。2026-11-03 改过告警状态机和去重后，
+# 本环境没有 arduino-cli，没有重编，不要把 Flash 占用写成新结果。
+# 单元测试计数是 2026-11-03 在 Python 3.12.3 上 `pytest` 的结果（此前 2026-11-01 为 23 项）。
 CORE = "Arduino-ESP32 核心 3.3.12"
 FQBN = "esp32:esp32:esp32c3:CDCOnBoot=cdc"
 FLASH_USE = "73%～74%"
-TESTS = 23
+TESTS = 34
 
 # ---- 外部资料（均已打开核对） ----
 FHWA_2024_DEATHS = 850

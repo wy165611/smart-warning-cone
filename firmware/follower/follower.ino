@@ -28,26 +28,13 @@ volatile uint8_t  rxLevel = LEVEL_SAFE;
 volatile uint8_t  rxMode = MODE_WORKING;
 volatile uint32_t rxAt = 0;          // 进入预警的时刻（流水灯相位基准）
 volatile uint32_t lastAlertMs = 0;   // 最近一次收到预警包
-volatile bool     needRelay = false;
-volatile bool     needRelayCfg = false;
-AlertPkt  relayPkt;
-ConfigPkt relayCfg;
 uint32_t lastSeqFrom[256];           // 按发送者 node_id（0–255）去重，避免 16 号以后互相覆盖
 uint8_t  seqSeen[256];               // 0 = 尚未收到该节点。收到之后才按 lastSeq 去重，序号 0 的第一包会保留
 uint32_t mySeq = 0, lastHeartbeat = 0;
 int8_t   lastRssi = 0;
-
-// 去重：同一发送者的序号必须变大；若序号“倒退”很多，说明对方重启过，也接受
-bool isNew(uint8_t id, uint32_t seq) {
-  uint32_t last = lastSeqFrom[id];
-  if (seqSeen[id]) {
-    if (seq == last) return false;
-    if (seq < last && last - seq < 64) return false;   // 中继副本或乱序旧包
-  }
-  lastSeqFrom[id] = seq;
-  seqSeen[id] = 1;
-  return true;
-}
+// 回调在 Wi-Fi 任务里，loop 在另一个任务。中继包放进队列再发，避免两个任务同时改同一块结构体。
+QueueHandle_t alertQ;
+QueueHandle_t configQ;
 
 void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   if (len < (int)sizeof(PktHeader)) return;
@@ -57,22 +44,30 @@ void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 
   if (h->type == MSG_ALERT && len == sizeof(AlertPkt)) {
     const AlertPkt *p = (const AlertPkt*)data;
-    if (!isNew(h->node_id, h->seq)) return;
-    if (p->level != rxLevel || p->level > LEVEL_SAFE) {
-      if (rxLevel == LEVEL_SAFE && p->level > LEVEL_SAFE) rxAt = millis();
+    if (!seqIsNew(seqSeen, lastSeqFrom, h->node_id, h->seq)) return;
+    // 先写模式再写等级：结束作业的包即使还带着旧等级，也不会被渲染成报警。
+    // 非作业或安全等级都把等级清掉，避免下次“开始作业”时沿用上一次的二级。
+    rxMode = p->mode;
+    if (!(p->mode & MODE_WORKING) || p->level == LEVEL_SAFE) {
+      rxLevel = LEVEL_SAFE;
+    } else {
+      if (rxLevel == LEVEL_SAFE) rxAt = millis();
       rxLevel = p->level;
     }
-    rxMode = p->mode;
     lastAlertMs = millis();
-    if (p->hops < MAX_HOPS) { relayPkt = *p; relayPkt.hops++; needRelay = true; }
+    if (p->hops < MAX_HOPS && alertQ) {
+      AlertPkt copy = *p;
+      copy.hops++;
+      xQueueSend(alertQ, &copy, 0);
+    }
   } else if (h->type == MSG_CONFIG && len == sizeof(ConfigPkt)) {
     // 哨兵把同一个配置包（同一序号）连发 3 次，去重后只处理、转发一次。
     // 每个节点对同一序号只转发一次，所以不需要跳数也不会无限循环。
-    if (!isNew(h->node_id, h->seq)) return;
+    if (!seqIsNew(seqSeen, lastSeqFrom, h->node_id, h->seq)) return;
     const ConfigPkt *c = (const ConfigPkt*)data;
     rxMode = c->mode;
     if (!(c->mode & MODE_WORKING)) rxLevel = LEVEL_SAFE;
-    relayCfg = *c; needRelayCfg = true;
+    if (configQ) xQueueSend(configQ, c, 0);
   }
 }
 
@@ -80,8 +75,13 @@ void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 // 本节点在 POSITION*FLOW_STEP_MS 后进入点亮相位，所有节点同周期，
 // 视觉上就是一个光点沿锥桶阵列移动，指示车辆向一侧变道。
 void render() {
-  uint8_t lv = rxLevel; uint8_t md = rxMode;
+  // WS2812 的 show() 会关中断约 1 ms。每圈都刷，ESP32-C3 上容易挤占 Wi-Fi。
+  // 20 ms 一帧足够跟上 70 ms 爆闪和 120 ms 流水。
+  static uint32_t lastDraw = 0;
   uint32_t now = millis();
+  if (now - lastDraw < 20) return;
+  lastDraw = now;
+  uint8_t lv = rxLevel; uint8_t md = rxMode;
   if (!(md & MODE_WORKING)) { strip.fill(strip.Color(60,40,0)); strip.show(); digitalWrite(PIN_BUZZER, LOW); return; }
 
   if (lv == LEVEL_SAFE) {
@@ -115,6 +115,8 @@ void setup() {
   strip.begin(); strip.setBrightness(LED_BRIGHTNESS); strip.show();
 
   WiFi.mode(WIFI_STA);
+  alertQ = xQueueCreate(4, sizeof(AlertPkt));
+  configQ = xQueueCreate(2, sizeof(ConfigPkt));
   esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
   esp_now_init();
   esp_now_register_recv_cb(onRecv);
@@ -125,18 +127,20 @@ void setup() {
 }
 
 void loop() {
-  if (needRelay) {
-    needRelay = false;
+  bool backedOff = false;
+  AlertPkt alert;
+  if (alertQ && xQueueReceive(alertQ, &alert, 0) == pdTRUE) {
     delay(random(2, 15));                       // 随机退避，减少冲突
-    esp_now_send(BCAST, (uint8_t*)&relayPkt, sizeof(relayPkt));
+    backedOff = true;
+    esp_now_send(BCAST, (uint8_t*)&alert, sizeof(alert));
   }
-  if (needRelayCfg) {
-    needRelayCfg = false;
-    delay(random(2, 15));
-    esp_now_send(BCAST, (uint8_t*)&relayCfg, sizeof(relayCfg));
+  ConfigPkt cfg;
+  if (configQ && xQueueReceive(configQ, &cfg, 0) == pdTRUE) {
+    if (!backedOff) delay(random(2, 15));
+    esp_now_send(BCAST, (uint8_t*)&cfg, sizeof(cfg));
   }
-  // 哨兵掉线保护：3 秒没收到告警刷新，则回到安全状态
-  if (rxLevel > LEVEL_SAFE && millis() - lastAlertMs > 3000) rxLevel = LEVEL_SAFE;
+  // 哨兵掉线保护：LINK_LOSS_MS 内没收到告警刷新，则回到安全状态
+  if (rxLevel > LEVEL_SAFE && millis() - lastAlertMs > LINK_LOSS_MS) rxLevel = LEVEL_SAFE;
   if (millis() - lastHeartbeat > HEARTBEAT_MS) {
     HeartbeatPkt p;
     p.h = {PROTO_MAGIC, PROTO_VERSION, MSG_HEARTBEAT, NODE_ID, NODE_FOLLOWER, ++mySeq};

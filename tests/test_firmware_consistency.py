@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from sentinel import algorithm, voice
+from sentinel import algorithm, dedupe, voice
 
 ROOT = Path(__file__).resolve().parents[1]
 FIRMWARE = ROOT / "firmware"
@@ -39,6 +39,8 @@ def test_thresholds_match_config_h() -> None:
         "CONFIRM_FRAMES": algorithm.CONFIRM_FRAMES,
         "MIN_TRACK_SPEED": algorithm.MIN_TRACK_SPEED_KMH,
         "MAX_TRACK_DIST": algorithm.MAX_TRACK_DIST_M,
+        "RELEASE_MS": algorithm.RELEASE_MS,
+        "LINK_LOSS_MS": 3000,
     }
     for name, value in pairs.items():
         assert _number(cfg[name]) == value, name
@@ -71,6 +73,25 @@ def test_voice_command_codes_match_protocol_h() -> None:
     replies = _defines(FIRMWARE / "common" / "protocol.h")
     assert int(replies["VOICE_REPLY_BATT_OK"], 16) == voice.REPLY_BATT_OK
     assert int(replies["VOICE_REPLY_BATT_LOW"], 16) == voice.REPLY_BATT_LOW
+
+
+def test_seq_dedupe_and_mode_bits_match_and_every_receiver_uses_them() -> None:
+    proto = _defines(FIRMWARE / "common" / "protocol.h")
+    assert int(proto["SEQ_REORDER_WINDOW"]) == dedupe.REORDER_WINDOW
+    assert int(proto["MODE_WORKING"], 0) == algorithm.MODE_WORKING
+    assert int(proto["MODE_LEFT"], 0) == algorithm.MODE_LEFT
+    assert int(proto["MODE_RAIN"], 0) == algorithm.MODE_RAIN
+    assert int(proto["MODE_NIGHT"], 0) == algorithm.MODE_NIGHT
+    for sketch in ("follower", "worker", "gateway"):
+        text = (FIRMWARE / sketch / f"{sketch}.ino").read_text(encoding="utf-8")
+        assert "seqIsNew(" in text
+        assert "bool isNew(" not in text
+    for sketch in ("follower", "worker"):
+        text = (FIRMWARE / sketch / f"{sketch}.ino").read_text(encoding="utf-8")
+        assert "LINK_LOSS_MS" in text
+    sentinel = (FIRMWARE / "sentinel" / "sentinel.ino").read_text(encoding="utf-8")
+    assert "clearThreat" in sentinel
+    assert "if (!(mode & MODE_WORKING))" in sentinel
 
 
 def test_config_h_keeps_placeholder_credentials() -> None:

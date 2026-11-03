@@ -1,5 +1,5 @@
 from sentinel.radar import FrameParser
-from sentinel.voice import CMD_START_WORK, checksum, decode, encode
+from sentinel.voice import CMD_START_WORK, VoiceStream, checksum, decode, encode
 
 # 《LD2451 串口通信协议 V1.03》数据实例。示例正文把方向说反了，这里按表 9 解析。
 OFFICIAL = bytes.fromhex("F4F3F2F1110003018A28003C158A1E013C0F765F003C0FF8F7F6F5")
@@ -30,6 +30,15 @@ def test_rejects_overlong_length_and_resynchronizes() -> None:
     bad = b"\xf4\xf3\xf2\xf1\xff\x00" + OFFICIAL
     frames = FrameParser().feed(bad)
     assert len(frames) == 1
+
+
+def test_voice_stream_keeps_a_frame_that_overlaps_its_own_header() -> None:
+    stream = VoiceStream()
+    assert stream.feed(b"\x00\xff") == []
+    assert stream.feed(bytes.fromhex("AAAA550100")) == [CMD_START_WORK]
+    assert stream.feed(bytes.fromhex("AA550101")) == []
+    # 0xAA+0x55+0x02 = 0x101，校验字节是 0x01。
+    assert stream.feed(bytes.fromhex("AA550201")) == [0x02]
 
 
 def test_voice_start_work_checksum_and_reject_bad_sum() -> None:

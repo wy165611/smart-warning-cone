@@ -19,9 +19,8 @@ if str(_ROOT) not in sys.path:
 
 import paho.mqtt.client as mqtt  # noqa: E402
 
-from sentinel.algorithm import SAFE_TTC_S, Thresholds, alert_level, ttc_seconds  # noqa: E402
+from sentinel.algorithm import MODE_WORKING, RELEASE_MS, ThreatTracker, Track  # noqa: E402
 
-LIMITS = Thresholds()
 NODES = ((1, 1), (2, 2), (3, 2), (4, 2), (20, 3))
 
 
@@ -66,55 +65,66 @@ def main(argv: list[str] | None = None) -> int:
 
             speed = random.choice([30, 38, 45, 55, 65, 80]) + random.uniform(-3, 3)
             distance = 100.0
-            event = {
-                "max_level": 0,
-                "max_speed": 0.0,
-                "min_ttc": SAFE_TTC_S,
-                "min_dist": 999.0,
-            }
-            start = time.time()
+            # 逻辑时钟每帧 100 ms，与雷达有目标时的节拍相同；解除不额外空等 1.5 s。
+            tracker = ThreatTracker(mode=MODE_WORKING)
+            clock = 0
             attentive = random.random() < 0.7
+            closed = None
             while distance > 8:
-                ttc = ttc_seconds(distance, speed)
-                level = alert_level(ttc, speed, *LIMITS.scaled())
+                clock += 100
+                step = tracker.on_radar([[Track(distance, speed, True)]], clock)
                 sequence += 1
                 publish(
                     client,
                     1,
                     "alert",
                     {
-                        "level": level,
-                        "mode": 1,
-                        "speed": round(speed + random.gauss(0, 0.8), 1),
-                        "dist": round(distance, 1),
-                        "ttc": round(ttc, 2),
+                        "level": step.level,
+                        "mode": MODE_WORKING,
+                        "speed": round(step.speed_kmh, 1),
+                        "dist": round(step.dist_m, 1),
+                        "ttc": round(step.ttc_s, 2),
                         "seq": sequence,
                     },
                 )
-                event["max_level"] = max(int(event["max_level"]), level)
-                event["max_speed"] = max(float(event["max_speed"]), speed)
-                event["min_ttc"] = min(float(event["min_ttc"]), ttc)
-                event["min_dist"] = min(float(event["min_dist"]), distance)
+                if step.closed is not None:
+                    closed = step.closed
                 time.sleep(0.1)
                 distance -= speed / 3.6 * 0.1
-                if level >= 1 and attentive:
+                if step.level >= 1 and attentive:
                     speed = max(15, speed * 0.97)
                     if distance < random.uniform(25, 40):
                         break
-            event["duration_ms"] = int((time.time() - start) * 1000)
-            rounded = {
-                key: round(value, 2) if isinstance(value, float) else value
-                for key, value in event.items()
-            }
-            publish(client, 1, "event", rounded)
+            clock += RELEASE_MS + 1
+            step = tracker.on_radar([], clock)
+            if step.closed is not None:
+                closed = step.closed
+            if closed is None:
+                print("这次通过没有形成事件")
+            else:
+                payload = {
+                    "max_level": closed.max_level,
+                    "max_speed": round(closed.max_speed, 2),
+                    "min_ttc": round(closed.min_ttc, 2),
+                    "min_dist": round(closed.min_dist, 2),
+                    "duration_ms": closed.duration_ms,
+                }
+                publish(client, 1, "event", payload)
+                print("车辆通过", payload)
             sequence += 1
             publish(
                 client,
                 1,
                 "alert",
-                {"level": 0, "mode": 1, "speed": 0, "dist": 0, "ttc": 99, "seq": sequence},
+                {
+                    "level": step.level,
+                    "mode": MODE_WORKING,
+                    "speed": round(step.speed_kmh, 1),
+                    "dist": round(step.dist_m, 1),
+                    "ttc": round(step.ttc_s, 2),
+                    "seq": sequence,
+                },
             )
-            print("车辆通过", rounded)
             time.sleep(random.uniform(2, 6))
     except KeyboardInterrupt:
         print("\n已停止")

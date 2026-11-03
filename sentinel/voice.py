@@ -35,3 +35,31 @@ def decode(frame: bytes) -> int | None:
     if frame[3] != checksum(frame[2]):
         return None
     return frame[2]
+
+
+class VoiceStream:
+    """逐字节解析语音帧，同步规则与哨兵 pollVoice() 相同。
+
+    第二字节不是 0x55 时，若它自己是 0xAA，则把它当作下一帧的帧头，
+    避免 AA AA 55 … 这种重叠把真正的命令丢掉。
+    """
+
+    def __init__(self) -> None:
+        self._buf = [0, 0, 0, 0]
+        self._idx = 0
+
+    def feed(self, data: bytes) -> list[int]:
+        commands: list[int] = []
+        for byte in data:
+            if self._idx == 0 and byte != HDR1:
+                continue
+            if self._idx == 1 and byte != HDR2:
+                self._idx = 1 if byte == HDR1 else 0
+                continue
+            self._buf[self._idx] = byte
+            self._idx += 1
+            if self._idx == 4:
+                self._idx = 0
+                if (self._buf[0] + self._buf[1] + self._buf[2]) & 0xFF == self._buf[3]:
+                    commands.append(self._buf[2])
+        return commands
