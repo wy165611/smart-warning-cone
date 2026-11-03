@@ -146,6 +146,7 @@ def test_dashboard_ships_chart_locally(tmp_path) -> None:
     assert page.status_code == 200
     assert "cdn.jsdelivr.net" not in page.text
     assert "/static/chart.umd.min.js" in page.text
+    assert "alerts.length < 2 ? 5 : 0" in page.text
     script = client.get("/static/chart.umd.min.js")
     assert script.status_code == 200
     assert "Chart.js v4.4.6" in script.text[:300]

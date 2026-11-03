@@ -6,7 +6,7 @@
 
 用可以放在普通锥桶上的雷达节点，把作业区从“只靠反光和隔离”补成一条短链路：**测到车 → 算碰撞时间 → 分级提醒司机和工人 → 把这次接近记下来**。
 
-Python 部分可以不接硬件跑模拟和看板。四个 Arduino 草图已用 Arduino-ESP32 核心 3.3.12 编译通过（2026-11-01）。2026-11-03 又改了告警状态机和去重，这次环境没有 arduino-cli，**没有重新编译**，也**还没有**烧录到实物上运行。本项目用于教学、竞赛和实验室联调，**没有**做过实车试验，也不能代替《公路养护安全作业规程》规定的标志、锥桶和防护设施。
+Python 部分可以不接硬件跑模拟和看板。2026-11-03 用 arduino-cli 1.5.1、Arduino-ESP32 核心 3.3.12 把四个草图重新编译通过（`--warnings all` 无警告）：程序空间哨兵 74%、联动 73%、工人端 73%、网关 74%，动态内存都是 11%。固件**还没有**烧录到实物上运行。本项目用于教学、竞赛和实验室联调，**没有**做过实车试验，也不能代替《公路养护安全作业规程》规定的标志、锥桶和防护设施。
 
 **English.** Sentinel Cone is a low-cost, radar-based warning system for highway maintenance work zones. A sentinel cone measures approaching vehicles, computes time-to-collision, and raises a graded alarm. Follower cones run a light sequence, a wearable alerts the crew, and a gateway publishes MQTT messages to a small web dashboard. The Python package, simulator, and unit tests run without hardware. Field accuracy, battery life, and radio range have not been measured in this repository. See [docs/项目说明书.md](docs/项目说明书.md) for the competition write-up.
 
@@ -123,7 +123,7 @@ python tools/radar_monitor.py /dev/ttyUSB0 --csv test.csv
 
 ## 示例输出
 
-下图是本机 MQTT broker + 看板接收 `tools/simulator.py` **模拟数据**时的截图（2026-11-01），不是路试。
+下图是 2026-11-03 本机 Mosquitto 2.0.18 + `python -m sentinel` + `tools/simulator.py` 的**模拟数据**截图，不是路试。图中这一次通过：最高车速 37 km/h，最小 TTC 1.08 s，五个节点在线；车辆离开后等级回到安全。
 
 ![看板模拟数据截图](docs/assets/dashboard-sim.png)
 

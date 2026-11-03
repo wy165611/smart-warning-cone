@@ -107,6 +107,10 @@ async function refresh(){
     if (chart) {
       chart.data.datasets[0].data = alerts.map(a=>({x:a.ts, y:a.speed}));
       chart.data.datasets[1].data = alerts.map(a=>({x:a.ts, y:Math.min(a.ttc,10)}));
+      // 只有一个点时折线画不出来。半径为 0 时这个点也看不见，所以单独放大。
+      const radius = alerts.length < 2 ? 5 : 0;
+      chart.data.datasets[0].pointRadius = radius;
+      chart.data.datasets[1].pointRadius = radius;
       chart.update();
     }
     document.getElementById("events").innerHTML = events.map(e => `<tr>
