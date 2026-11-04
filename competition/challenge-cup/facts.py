@@ -1,7 +1,7 @@
 """申报书和答辩 PPT 共用的事实与数字。
 
 改这里，两份文件一起变。每个数字都要能在仓库代码或下面列出的公开资料里找到；
-没有出处的内容写成【待补充：…】，不要估填。最近一次核对：2026-11-01。
+没有出处的内容写成【待补充：…】，不要估填。最近一次核对：2026-11-04。
 """
 
 TITLE = "哨兵——基于毫米波雷达与协同组网的公路养护作业区智能预警锥桶系统"
@@ -41,6 +41,22 @@ RAM_USE = "11%"
 FLASH_DETAIL = "哨兵 980009 字节（74%），联动 967545 字节（73%），工人端 964461 字节（73%），网关 975527 字节（74%）"
 RAM_DETAIL = "哨兵 36728 字节（11%），联动 37856 字节（11%），工人端 37800 字节（11%），网关 39040 字节（11%）"
 TESTS = 34
+
+
+# ---- 国内典型案例（非全国统计；全国养护作业区伤亡起数仍未找到可引用汇总表） ----
+# 出处：泰州市公安局 2026-10-26 公示，已打开原文核对。
+CN_CASE_DATE = "2026-01-07"
+CN_CASE_PLACE = "345 国道靖江段"
+CN_CASE_DEATHS = 3
+CN_CASE_INJURED = 2  # 1 重伤 + 1 轻伤
+CN_CASE_BLURB = (
+    f"{CN_CASE_DATE}，{CN_CASE_PLACE}养护作业区："
+    f"货车分心驾驶追尾施工保护车，致 {CN_CASE_DEATHS} 死 {CN_CASE_INJURED} 伤"
+)
+CN_CASE_NOTE = (
+    "这是地方公安机关公示的一起较大道路交通事故，不是全国养护作业区伤亡汇总；"
+    "全国起数与死亡人数仍缺可引用的官方汇总表。"
+)
 
 # ---- 外部资料（均已打开核对） ----
 FHWA_2024_DEATHS = 850
@@ -118,6 +134,10 @@ REFS = [
     (
         "Espressif Systems. ESP-NOW: ESP-IDF Programming Guide (ESP32-C3)[EB/OL]",
         "https://docs.espressif.com/projects/esp-idf/en/stable/esp32c3/api-reference/network/esp_now.html",
+    ),
+    (
+        "泰州市公安局. 345国道泰州靖江市“1·7”较大道路交通事故处理情况公示[EB/OL]. (2026-10-26)",
+        "https://gaj.taizhou.gov.cn/jwzx/tzgg/art/2026/art_d692699ed0c944bcaa4fa840ed0461ea.html",
     ),
 ]
 
