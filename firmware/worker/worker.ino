@@ -22,11 +22,15 @@ static const uint8_t BCAST[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 volatile uint8_t  rxLevel = LEVEL_SAFE;
 volatile uint32_t lastAlertMs = 0;
 uint32_t muteUntil = 0, mySeq = 0, lastHeartbeat = 0;
+uint32_t lastSeqFrom[256];
+uint8_t  seqSeen[256];
 
 void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   if (len != sizeof(AlertPkt)) return;
   const AlertPkt *p = (const AlertPkt*)data;
   if (p->h.magic != PROTO_MAGIC || p->h.type != MSG_ALERT) return;
+  // 中继副本序号相同、乱序旧包序号更小。不去重的话，解除之后迟到的二级包会把震动重新打开。
+  if (!seqIsNew(seqSeen, lastSeqFrom, p->h.node_id, p->h.seq)) return;
   if (!(p->mode & MODE_WORKING)) { rxLevel = LEVEL_SAFE; return; }
   rxLevel = p->level; lastAlertMs = millis();
 }
@@ -49,7 +53,7 @@ void setup() {
 
 void loop() {
   uint32_t now = millis();
-  if (rxLevel > LEVEL_SAFE && now - lastAlertMs > 3000) rxLevel = LEVEL_SAFE;
+  if (rxLevel > LEVEL_SAFE && now - lastAlertMs > LINK_LOSS_MS) rxLevel = LEVEL_SAFE;
   if (digitalRead(PIN_KEY) == LOW) muteUntil = now + 10000;   // 静音 10 s（仅声音）
 
   bool motor = false, buzz = false, led = false;

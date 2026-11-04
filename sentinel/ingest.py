@@ -3,28 +3,56 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from typing import Any
 
 MAX_PAYLOAD_BYTES = 4096
 KINDS = frozenset({"heartbeat", "alert", "event", "config"})
+# 宽松上界，只挡住会写坏统计或看板的值。雷达实际量程远小于这些数。
+_SPEED = (0.0, 500.0)
+_DIST = (0.0, 2000.0)
+_TTC = (0.0, 10000.0)
+_BATT = (0.0, 10.0)
+_RSSI = (-128, 127)
+_DURATION = (0, 2**32 - 1)
+_MODE = (0, 255)
+_LEVELS = (0, 2)  # 只接受 0 安全 / 1 一级 / 2 二级
 
 
 def _number(data: dict[str, Any], key: str, cast: type[float] | type[int]) -> float | int:
     if key not in data:
         raise ValueError(f"missing {key}")
     value = data[key]
-    if isinstance(value, bool) or value is None:
+    # bool 是 int 的子类，不能当成等级或速度。
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"bad {key}")
-    return cast(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"bad {key}")
+    try:
+        number = cast(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f"bad {key}") from None
+    if isinstance(number, float) and not math.isfinite(number):
+        raise ValueError(f"bad {key}")
+    return number
 
 
-def _optional_number(
-    data: dict[str, Any], key: str, cast: type[float] | type[int]
+def _bounded(
+    data: dict[str, Any],
+    key: str,
+    cast: type[float] | type[int],
+    bounds: tuple[float, float],
+    *,
+    required: bool,
 ) -> float | int | None:
-    if key not in data or data[key] is None:
+    if not required and (key not in data or data[key] is None):
         return None
-    return _number(data, key, cast)
+    value = _number(data, key, cast)
+    low, high = bounds
+    if value < low or value > high:
+        raise ValueError(f"bad {key}")
+    return value
 
 
 def ingest(conn: sqlite3.Connection, topic: str, payload: bytes | str, now: float) -> str | None:
@@ -63,36 +91,42 @@ def ingest(conn: sqlite3.Connection, topic: str, payload: bytes | str, now: floa
 
 
 def _heartbeat(conn: sqlite3.Connection, node: int, data: dict[str, Any], now: float) -> None:
+    # 缺字段写成 NULL，更新时用 COALESCE 保留原来的电量和等级，避免半包心跳把节点抹空。
     conn.execute(
         "INSERT INTO nodes(id,type,batt,mode,level,rssi,last_seen) VALUES(?,?,?,?,?,?,?) "
-        "ON CONFLICT(id) DO UPDATE SET type=excluded.type,batt=excluded.batt,mode=excluded.mode,"
-        "level=excluded.level,rssi=excluded.rssi,last_seen=excluded.last_seen",
+        "ON CONFLICT(id) DO UPDATE SET "
+        "type=COALESCE(excluded.type, nodes.type),"
+        "batt=COALESCE(excluded.batt, nodes.batt),"
+        "mode=COALESCE(excluded.mode, nodes.mode),"
+        "level=COALESCE(excluded.level, nodes.level),"
+        "rssi=COALESCE(excluded.rssi, nodes.rssi),"
+        "last_seen=excluded.last_seen",
         (
             node,
-            _optional_number(data, "type", int),
-            _optional_number(data, "batt", float),
-            _optional_number(data, "mode", int),
-            _optional_number(data, "level", int),
-            _optional_number(data, "rssi", int),
+            _bounded(data, "type", int, (0, 255), required=False),
+            _bounded(data, "batt", float, _BATT, required=False),
+            _bounded(data, "mode", int, _MODE, required=False),
+            _bounded(data, "level", int, _LEVELS, required=False),
+            _bounded(data, "rssi", int, _RSSI, required=False),
             now,
         ),
     )
 
 
 def _alert(conn: sqlite3.Connection, node: int, data: dict[str, Any], now: float) -> None:
-    level = int(_number(data, "level", int))
-    speed = float(_number(data, "speed", float))
-    dist = float(_number(data, "dist", float))
-    ttc = float(_number(data, "ttc", float))
-    mode = _optional_number(data, "mode", int)
+    level = _bounded(data, "level", int, _LEVELS, required=True)
+    speed = _bounded(data, "speed", float, _SPEED, required=True)
+    dist = _bounded(data, "dist", float, _DIST, required=True)
+    ttc = _bounded(data, "ttc", float, _TTC, required=True)
+    mode = _bounded(data, "mode", int, _MODE, required=False)
     conn.execute(
         "INSERT INTO alerts(ts,node,level,speed,dist,ttc) VALUES(?,?,?,?,?,?)",
         (now, node, level, speed, dist, ttc),
     )
     conn.execute(
         "INSERT INTO nodes(id,type,level,mode,last_seen) VALUES(?,1,?,?,?) "
-        "ON CONFLICT(id) DO UPDATE SET level=excluded.level,mode=excluded.mode,"
-        "last_seen=excluded.last_seen",
+        "ON CONFLICT(id) DO UPDATE SET level=excluded.level,"
+        "mode=COALESCE(excluded.mode, nodes.mode),last_seen=excluded.last_seen",
         (node, level, mode, now),
     )
 
@@ -104,17 +138,17 @@ def _event(conn: sqlite3.Connection, node: int, data: dict[str, Any], now: float
         (
             now,
             node,
-            int(_number(data, "max_level", int)),
-            float(_number(data, "max_speed", float)),
-            float(_number(data, "min_ttc", float)),
-            float(_number(data, "min_dist", float)),
-            int(_number(data, "duration_ms", int)),
+            _bounded(data, "max_level", int, _LEVELS, required=True),
+            _bounded(data, "max_speed", float, _SPEED, required=True),
+            _bounded(data, "min_ttc", float, _TTC, required=True),
+            _bounded(data, "min_dist", float, _DIST, required=True),
+            _bounded(data, "duration_ms", int, _DURATION, required=True),
         ),
     )
 
 
 def _config(conn: sqlite3.Connection, node: int, data: dict[str, Any]) -> None:
-    mode = int(_number(data, "mode", int))
+    mode = _bounded(data, "mode", int, _MODE, required=True)
     conn.execute(
         "INSERT INTO nodes(id, mode) VALUES(?, ?) ON CONFLICT(id) DO UPDATE SET mode=excluded.mode",
         (node, mode),

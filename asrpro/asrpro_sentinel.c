@@ -45,7 +45,9 @@ void uart_task(){
     while (Serial.available() > 0) {
       uint8_t c = Serial.read();
       if (rxidx == 0 && c != 0xAA) continue;
-      if (rxidx == 1 && c != 0x55) { rxidx = 0; continue; }
+      // 与哨兵 pollVoice()、sentinel/voice.py 的 VoiceStream 相同：
+      // 第二字节若仍是 0xAA，保留为帧头，避免 AA AA 55 … 把命令吃掉。
+      if (rxidx == 1 && c != 0x55) { rxidx = (c == 0xAA) ? 1 : 0; continue; }
       rxbuf[rxidx++] = c;
       if (rxidx == 4) {
         rxidx = 0;

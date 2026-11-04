@@ -59,25 +59,14 @@ void publish(uint8_t id, const char *sub, const String &json) {
 }
 
 // 原始包与中继副本序号相同，按 (节点, 序号) 去重；网关离哨兵远时也能经中继收到。
-// 规则与联动锥桶相同：同号丢弃；比上次小但相差不到 64 视为迟到的副本；
-// 相差更多视为对方重启后重新起号，照常接受。seqSeen 避免把首包序号 0 当成重复。
+// 规则在 protocol.h 的 seqIsNew()：同号丢弃；比上次小但相差不到窗口视为迟到副本；
+// 相差更多视为对方重启后重新起号。seqSeen 避免把首包序号 0 当成重复。
 uint32_t lastSeq[256];
 uint8_t  seqSeen[256];
 
-bool isNew(uint8_t id, uint32_t seq) {
-  if (seqSeen[id]) {
-    uint32_t last = lastSeq[id];
-    if (seq == last) return false;
-    if (seq < last && last - seq < 64) return false;
-  }
-  lastSeq[id] = seq;
-  seqSeen[id] = 1;
-  return true;
-}
-
 void handle(const RxItem &it) {
   const PktHeader *h = (const PktHeader*)it.data;
-  if (!isNew(h->node_id, h->seq)) return;
+  if (!seqIsNew(seqSeen, lastSeq, h->node_id, h->seq)) return;
   char b[200];
   switch (h->type) {
     case MSG_ALERT: if (it.len == sizeof(AlertPkt)) {

@@ -136,6 +136,19 @@ void currentThresholds(float &t1, float &t2) {
   t2 = TTC_LEVEL2_S * k;
 }
 
+// 解除告警并可选地上报尚未结束的通过事件。实时速度、距离清零，
+// 极值已经写在事件包里，避免“安全”广播还带着上一辆车的位置。
+void clearThreat(bool closeEvent) {
+  confirmCnt = 0;
+  level = LEVEL_SAFE;
+  curTtc = 99;
+  filtDist = 0;
+  filtSpeed = 0;
+  kfDist.reset();
+  kfSpeed.reset();
+  if (closeEvent && inEvent) { sendEvent(); inEvent = false; }
+}
+
 // 目标消失超过 RELEASE_MS 后解除告警并结束本次事件。
 // 在 loop 里按时间检查，而不是只在收到“无目标帧”时检查：
 // 雷达无目标时约 1 s 才出一帧，串口线松脱时则完全没有帧，
@@ -143,13 +156,21 @@ void currentThresholds(float &t1, float &t2) {
 void releaseIfIdle() {
   if (level == LEVEL_SAFE && !inEvent) return;
   if (millis() - lastHitMs <= RELEASE_MS) return;
-  confirmCnt = 0; level = LEVEL_SAFE; curTtc = 99;
-  kfDist.reset(); kfSpeed.reset();
-  if (inEvent) { sendEvent(); inEvent = false; }
+  clearThreat(true);
 }
 
 void processRadar() {
   RadarFrame f;
+  // 非作业：排空串口，但不累计确认、不开事件。已有告警立即解除。
+  // 若在这里继续跟踪，结束作业前路过的车会把确认计数加满，
+  // 一开始作业就跳过 3 帧确认直接报警，还会把非作业时段写进安全报告。
+  if (!(mode & MODE_WORKING)) {
+    while (radar.poll(f)) {
+      // 非作业时不使用本帧，只把串口读空。
+    }
+    clearThreat(true);
+    return;
+  }
   while (radar.poll(f)) {
     // 选“最危险”的接近目标：TTC 最小者
     bool found = false; float bestTtc = 99, bestD = 0, bestV = 0;
@@ -173,8 +194,11 @@ void processRadar() {
     if (curTtc < t2) want = LEVEL_DANGER;
     else if (curTtc < t1 || filtSpeed > SPEED_LIMIT_KMH * OVERSPEED_RATIO) want = LEVEL_WARN;
 
-    if (want > LEVEL_SAFE) confirmCnt++; else confirmCnt = 0;
-    // 升级需连续确认；降级立即（但有 RELEASE_MS 保持）
+    // 计数停在 CONFIRM_FRAMES，长时间跟踪不会把 int 一直加下去。
+    if (want > LEVEL_SAFE) {
+      if (confirmCnt < CONFIRM_FRAMES) confirmCnt++;
+    } else confirmCnt = 0;
+    // 升级需连续确认；降级立即。目标消失后的保持在 releaseIfIdle()。
     if (confirmCnt >= CONFIRM_FRAMES || want < level) level = want;
 
     // 事件统计
@@ -191,7 +215,6 @@ void processRadar() {
                   filtDist, filtSpeed, curTtc, level);
   }
   releaseIfIdle();
-  if (!(mode & MODE_WORKING)) level = LEVEL_SAFE;
 }
 
 // -------------------------------------------------------------
@@ -212,7 +235,10 @@ void handleVoice(uint8_t cmd) {
   Serial.printf("[VOICE] cmd=0x%02X\n", cmd);
   switch (cmd) {
     case VC_START_WORK: mode |= MODE_WORKING;  break;
-    case VC_STOP_WORK:  mode &= ~MODE_WORKING; break;
+    case VC_STOP_WORK:
+      mode &= ~MODE_WORKING;
+      clearThreat(true);   // 同一轮 loop 里随后发出的预警已是安全，工人端不会停在旧等级
+      break;
     case VC_LEFT:       mode |= MODE_LEFT;     break;
     case VC_RIGHT:      mode &= ~MODE_LEFT;    break;
     case VC_RAIN_ON:    mode |= MODE_RAIN;     break;

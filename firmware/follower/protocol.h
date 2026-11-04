@@ -37,6 +37,10 @@ enum MsgType : uint8_t {
 #define MODE_RAIN      0x04   // 雨天模式
 #define MODE_NIGHT     0x08   // 夜间模式
 
+// 序号去重窗口：比上次小、但相差小于该值，视为迟到的中继副本。
+// 相差更大视为发送方重启后重新起号。Python 侧是 sentinel/dedupe.py 的 REORDER_WINDOW。
+#define SEQ_REORDER_WINDOW 64
+
 #pragma pack(push, 1)
 typedef struct {
   uint8_t  magic;      // PROTO_MAGIC
@@ -79,6 +83,19 @@ typedef struct {
   uint32_t duration_ms;
 } EventPkt;
 #pragma pack(pop)
+
+// 按发送者去重。seen[id]==0 表示还没收到过该节点，序号 0 的第一包也会接受。
+// seen、last 各 256 项，由调用方提供并保持零初始化；三个接收端共用这一份，避免各写各的。
+inline bool seqIsNew(uint8_t *seen, uint32_t *last, uint8_t id, uint32_t seq) {
+  if (seen[id]) {
+    uint32_t prev = last[id];
+    if (seq == prev) return false;
+    if (seq < prev && prev - seq < SEQ_REORDER_WINDOW) return false;
+  }
+  last[id] = seq;
+  seen[id] = 1;
+  return true;
+}
 
 // ---------- ASRPRO → 哨兵 串口命令 ----------
 // 帧格式：0xAA 0x55 CMD (0xAA+0x55+CMD)&0xFF   共 4 字节，9600 8N1

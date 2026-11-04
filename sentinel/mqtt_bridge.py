@@ -16,6 +16,24 @@ from sentinel.ingest import ingest
 logger = logging.getLogger("sentinel.mqtt")
 
 
+def serve_mqtt(connect, sleep, cycles: int | None = None) -> None:
+    """连接并阻塞在 MQTT 循环里。无论是连不上还是循环退出，都歇 3 秒再试。
+
+    loop_forever() 正常返回时如果不歇，断线后会空转重连。
+    cycles 只给测试用，正式运行不传。
+    """
+    completed = 0
+    while cycles is None or completed < cycles:
+        try:
+            connect()
+        except OSError as exc:
+            logger.warning("MQTT connect failed, retry in 3s: %s", exc)
+        except Exception:
+            logger.exception("MQTT loop stopped, retry in 3s")
+        sleep(3)
+        completed += 1
+
+
 def start_mqtt(app: FastAPI) -> mqtt.Client:
     settings = app.state.settings
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -43,14 +61,14 @@ def start_mqtt(app: FastAPI) -> mqtt.Client:
     client.on_connect = on_connect
     client.on_message = on_message
 
-    def _loop() -> None:
-        while True:
-            try:
-                client.connect(settings.mqtt_host, settings.mqtt_port, 30)
-                client.loop_forever()
-            except OSError as exc:
-                logger.warning("MQTT connect failed, retry in 3s: %s", exc)
-                time.sleep(3)
+    def _connect() -> None:
+        client.connect(settings.mqtt_host, settings.mqtt_port, 30)
+        client.loop_forever()
 
-    threading.Thread(target=_loop, name="mqtt", daemon=True).start()
+    threading.Thread(
+        target=serve_mqtt,
+        args=(_connect, time.sleep),
+        name="mqtt",
+        daemon=True,
+    ).start()
     return client

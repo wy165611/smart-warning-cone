@@ -33,6 +33,7 @@
 #define FLOW_STEP_MS        120     // 流水灯：每个锥桶比前一个延迟多少 ms
 #define ALERT_REPEAT_MS     200     // 告警期间重复广播间隔
 #define HEARTBEAT_MS        5000    // 心跳间隔（上报电量/在线）
+#define LINK_LOSS_MS        3000    // 联动锥桶 / 工人端收不到预警刷新后回到安全
 
 // ---------- 灯带 ----------
 #define LED_NUM             30
